@@ -29,7 +29,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
 @click.option("-e", "--epochs", default=100, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.2, help="Dropout fraction.")
-@click.option("-b", "--batch_size", default=128, help="Number of molecules per batch.")
+@click.option("-b", "--batch_size", default=96, help="Number of molecules per batch.")
 @click.option("-l", "--lr", default=0.001, help="Learning rate.")
 @click.option("-f", "--lr_factor", default=0.75, help="Factor for learning rate decay.")
 @click.option("-s", "--lr_step", default=5, help="Step size for learning rate decay.")
@@ -154,12 +154,12 @@ def train_one_epoch(
         # Combine losses
         loss = loss_mol + loss_props
         loss.backward(retain_graph=True)
-        torch.nn.utils.clip_grad_norm_(lstm.parameters(), 0.5)  # clip gradient of LSTM
+        # torch.nn.utils.clip_grad_norm_(lstm.parameters(), 0.5)  # clip gradient of LSTM
         optimizer.step()
         total_props += loss_props.cpu().detach().numpy()
         total_token += loss_per_token
-        if step > 0 and step % 50 == 0:
-            print("Loss LSTM:", total_token / step, "Loss Props.:", total_props / step)
+        if step > 0 and step % 500 == 0:
+            print(f"\n\tLoss LSTM: {total_token / step:.3f}, Loss Props.: {total_props / step:.2f}")
         step += 1
 
     return total_token / len(train_loader), total_props / len(train_loader)
