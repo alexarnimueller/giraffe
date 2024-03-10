@@ -26,7 +26,7 @@ class FFNN(nn.Module):
 
 
 class LSTM(nn.Module):
-    def __init__(self, input_dim=512, embedding_dim=128, hidden_dim=256, layers=2, dropout=0.3):
+    def __init__(self, input_dim=64, embedding_dim=128, hidden_dim=256, layers=2, dropout=0.3):
         super(LSTM, self).__init__()
         self.n_layers = layers
         self.embedding = nn.Embedding(input_dim, embedding_dim)
@@ -44,7 +44,7 @@ class LSTM(nn.Module):
     def forward(self, i, h):
         f = self.norm_1(self.embedding(i))
         f, h = self.lstm(f, h)
-        f = self.fnn(self.norm_2(f))
+        f = self.fnn(self.norm_2(f)).squeeze(0)
         return f, h
 
 
