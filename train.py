@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
+from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
@@ -87,6 +88,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     # Define optimizer and criterion
     opt_params = list(lstm.parameters()) + list(egnn.parameters())
     optimizer = torch.optim.Adam(opt_params, lr=lr, betas=(0.9, 0.999))
+    writer = SummaryWriter(path_loss)
     criterion1 = nn.CrossEntropyLoss()
     criterion2 = nn.MSELoss()
     scheduler = torch.optim.lr_scheduler.StepLR(
@@ -102,12 +104,12 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     for epoch in range(epochs):
         print(f" ---------- Epoch {epoch + 1} ---------- ")
         time_start = time.time()
-        l_lstm, l_prop = train_one_epoch(egnn, lstm, ffnn, optimizer, criterion1, criterion2, train_loader)
+        l_l, l_p = train_one_epoch(egnn, lstm, ffnn, optimizer, criterion1, criterion2, train_loader, writer, epoch)
         scheduler.step()
-        losses_lstm.append(l_lstm)
-        losses_prop.append(l_prop)
+        losses_lstm.append(l_l)
+        losses_prop.append(l_p)
         loop_time = time.time() - time_start
-        print("Epoch:", epoch, "Loss LSTM:", l_lstm, "Loss Props.:", l_prop, "Time:", loop_time)
+        print("Epoch:", epoch, "Loss LSTM:", l_l, "Loss Props.:", l_p, "Time:", loop_time)
 
         # save loss and models
         if (epoch + 20) % 20 == 0:
@@ -124,7 +126,9 @@ def train_one_epoch(
     optimizer,
     criterion1,
     criterion2,
-    train_loader
+    train_loader,
+    writer,
+    epoch,
 ):
     egnn.train()
     lstm.train()
@@ -158,8 +162,12 @@ def train_one_epoch(
         optimizer.step()
         total_props += loss_props.cpu().detach().numpy()
         total_token += loss_per_token
-        if step > 0 and step % 500 == 0:
-            print(f"\n\tLoss LSTM: {total_token / step:.3f}, Loss Props.: {total_props / step:.2f}")
+        # write tensorboard summary
+        if step > 0:
+            writer.add_scalar('loss_train_lstm', total_token / step, epoch * len(train_loader) + step)
+            writer.add_scalar('loss_train_prop', total_props / step, epoch * len(train_loader) + step)
+            if step % 500 == 0:
+                print(f"\n\tLoss LSTM: {total_token / step:.3f}, Loss Props.: {total_props / step:.2f}")
         step += 1
 
     return total_token / len(train_loader), total_props / len(train_loader)
