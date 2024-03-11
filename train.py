@@ -34,7 +34,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-l", "--lr", default=0.001, help="Learning rate.")
 @click.option("-f", "--lr_factor", default=0.75, help="Factor for learning rate decay.")
 @click.option("-s", "--lr_step", default=5, help="Step size for learning rate decay.")
-def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_factor, lr_step):
+@click.option("-a", "--save_after", default=10, help="Epoch steps to save model.")
+def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_factor, lr_step, save_after):
     # Load hyperparameters from config file and define globle variables
     dim_model = 128
     dim_hidden = 512
@@ -112,7 +113,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
         print("Epoch:", epoch, "Loss LSTM:", l_l, "Loss Props.:", l_p, "Time:", loop_time)
 
         # save loss and models
-        if (epoch + 20) % 20 == 0:
+        if epoch > 0 and epoch % save_after == 0:
             torch.save(egnn.state_dict(), f"{path_model}egnn_{epoch}.pt")
             torch.save(lstm.state_dict(), f"{path_model}lstm_{epoch}.pt")
             torch.save(losses_lstm, f"{path_loss}lstm_training.pt")
