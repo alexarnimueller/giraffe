@@ -1,8 +1,8 @@
 #! /usr/bin/env python
 # -*- coding: utf-8
 
+import configparser
 import os
-import random
 
 import click
 import numpy as np
@@ -11,88 +11,72 @@ import torch
 import torch.nn as nn
 from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
-from torch_geometric.loader import DataLoader
 from tqdm import trange
 
 from dataset import OneMol, tokenizer
-from old.net import EGNN, LSTM, GraphTransformer
-from utils import (
-    ACT,
-    AROMDICT,
-    ATOMDICT,
-    CONFIG_PATH,
-    HYBDICT,
-    MODEL_PATH,
-    RINGDICT,
-    clean_molecule,
-    decode_ids,
-    get_vocab,
-    is_valid_mol,
-    selfies_vocab,
-    transform_temp,
-)
+from model import LSTM, GraphTransformer
+from utils import is_valid_mol
 
 for level in RDLogger._levels:
     DisableLog(level)
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 @click.command()
 @click.argument("checkpointfolder")
+@click.option("-e", "--epoch", help="Epoch of models to load.")
 @click.option("-s", "--smiles", help="Reference SMILES to use as seed for sampling.")
 @click.option("-n", "--num", default=100, help="How many molecules to sample.")
 @click.option("-t", "--temp", default=0.6, help="Temperature to use for sampling.")
-def main(checkpointfolder, smiles, num, temp):
-    # Define paths
-    MODEL_PATH = os.path.join(MODEL_PATH, CONFIG_NAME)
-    CONFIG_NAME = CONFIG_NAME + "/"
-    # Define PDB id and args
-    smi = args.smi
-    epoch = str(args.epoch)
-    num_mols = int(args.num_mols)
-    T = args.T
+@click.option("-m", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
+def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
+    ini = configparser.ConfigParser()
+    ini.read(os.path.join(checkpointfolder, 'config.ini'))
+    conf = ini["CONFIG"]
+    _, t2i = tokenizer()
 
     # Define models
-    lstm = LSTM(ALPHABET, D_INNER, N_LAYERS, DROPOUT, D_MODEL)
-    egnn = GraphTransformer(N_KERNELS, D_INNER, PROP_DIM, POOLING_HEADS)
+    lstm = LSTM(input_dim=conf["alphabet"], embedding_dim=conf["dim_model"], hidden_dim=conf["dim_hidden"],
+                layers=conf["n_layers"], dropout=conf["dropout"])
+    egnn = GraphTransformer(n_kernels=conf["n_kernels"], pooling_heads=conf["n_pool_heads"], mlp_dim=conf["dim_hidden"],
+                            kernel_dim=conf["dim_model"], embeddings_dim=conf["dim_model"], dropout=conf["dropout"])
 
     egnn_path = os.path.join(checkpointfolder, f"egnn_{epoch}.pt")
     lstm_path = os.path.join(checkpointfolder, f"lstm_{epoch}.pt")
 
-    egnn.load_state_dict(torch.load(egnn_path, map_location="cpu"))
-    lstm.load_state_dict(torch.load(lstm_path, map_location="cpu"))
+    egnn.load_state_dict(torch.load(egnn_path, map_location=DEVICE))
+    lstm.load_state_dict(torch.load(lstm_path, map_location=DEVICE))
 
     egnn = egnn.to("gpu")
     lstm = lstm.to("gpu")
 
-    # Load PDB
-    g_mol = MolLoader(smi=smi)
-    sample_loader = DataLoader(g_mol, batch_size=1, shuffle=True, num_workers=0)
-
     # Sample molecules
-    print(f"Sampling {num_mols} molecules:")
+    print(f"Sampling {num} molecules:")
     novels, probs_abs = temperature_sampling(
         egnn=egnn,
         lstm=lstm,
         temp=temp,
-        sample_loader=sample_loader,
-        num_mols=num_mols,
+        smiles=smiles,
+        num_mols=num,
+        maxlen=maxlen
     )
 
     # Save predictions
     df = pd.DataFrame({"SMILES": novels, "log-likelihoodog": probs_abs})
     df_sorted = df.sort_values(by=["log-likelihoodog"], ascending=False)
     os.makedirs("output/", exist_ok=True)
-    df_sorted.to_csv(f"output/{args.smi_id}.csv", index=False)
+    df_sorted.to_csv("output/sampled.csv", index=False)
 
 
-def temperature_sampling(egnn, lstm, temp, ref_smiles, num_mols, maxlen):
+def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
     egnn.eval()
     lstm.eval()
     softmax = nn.Softmax(dim=2)
     i2t, t2i = tokenizer()
 
-    mol = OneMol(ref_smiles, maxlen)
-    g = mol[0].to("cuda")
+    mol = OneMol(smiles, maxlen)
+    g = mol[0].to(DEVICE)
 
     smiles_list, score_list = [], []
     for _ in trange(num_mols):
@@ -101,7 +85,7 @@ def temperature_sampling(egnn, lstm, temp, ref_smiles, num_mols, maxlen):
         stop = False
         with torch.no_grad():
             pred_smls_list = []
-            pred_smls = torch.from_numpy(np.asarray([t2i["^"]])).to("cuda")
+            pred_smls = torch.from_numpy(np.asarray([t2i["^"]])).to(DEVICE)
 
             while not stop:
                 pred, hiddens = lstm(pred_smls, hiddens)
@@ -116,7 +100,7 @@ def temperature_sampling(egnn, lstm, temp, ref_smiles, num_mols, maxlen):
                 pred = np.random.multinomial(1, pred, size=1)
                 pred = np.argmax(pred)
                 pred_smls_list.append(pred)
-                pred_smls = torch.LongTensor([[pred]]).to("cuda")
+                pred_smls = torch.LongTensor([[pred]]).to(DEVICE)
 
                 # calculate score (the higher the %, the smaller the log-likelihood)
                 score += +(-np.log(prob[pred]))

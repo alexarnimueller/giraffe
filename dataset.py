@@ -5,10 +5,11 @@ import numpy as np
 import pandas as pd
 import torch
 from rdkit.Chem import AddHs, MolFromSmiles, MolToSmiles, RemoveHs
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Dataset
 
 from descriptors import rdkit_descirptors
-from pygdataset import Dataset
+
+# from pygdataset import Dataset
 from utils import AROMATICITY, ATOMTYPES, HYBRIDISATIONS, IS_RING
 
 
@@ -39,6 +40,12 @@ class OneMol(Dataset):
 
     def __len__(self):
         return 1
+    
+    def len(self) -> int:
+        return self.__len__()
+
+    def get(self, idx: int) -> Data:
+        return self.__getitem__(idx)
 
 
 class MolDataset(Dataset):
@@ -74,6 +81,12 @@ class MolDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+
+    def len(self) -> int:
+        return self.__len__()
+
+    def get(self, idx: int) -> Data:
+        return self.__getitem__(idx)
 
 
 def graph_from_mol(mol):
