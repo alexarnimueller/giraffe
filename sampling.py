@@ -31,10 +31,19 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-t", "--temp", default=0.6, help="Temperature to use for sampling.")
 @click.option("-m", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
 def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
+    assert Chem.MolFromSmiles(smiles), "invalid SMILES string!"
+
     ini = configparser.ConfigParser()
     ini.read(os.path.join(checkpointfolder, 'config.ini'))
-    conf = ini["CONFIG"]
-    _, t2i = tokenizer()
+    conf = {}
+    for k, v in ini["CONFIG"].items():
+        try:
+            conf[k] = int(v)
+        except ValueError:
+            try:
+                conf[k] = float(v)
+            except ValueError:
+                conf[k] = v
 
     # Define models
     lstm = LSTM(input_dim=conf["alphabet"], embedding_dim=conf["dim_model"], hidden_dim=conf["dim_hidden"],
@@ -42,14 +51,10 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     egnn = GraphTransformer(n_kernels=conf["n_kernels"], pooling_heads=conf["n_pool_heads"], mlp_dim=conf["dim_hidden"],
                             kernel_dim=conf["dim_model"], embeddings_dim=conf["dim_model"], dropout=conf["dropout"])
 
-    egnn_path = os.path.join(checkpointfolder, f"egnn_{epoch}.pt")
-    lstm_path = os.path.join(checkpointfolder, f"lstm_{epoch}.pt")
-
-    egnn.load_state_dict(torch.load(egnn_path, map_location=DEVICE))
-    lstm.load_state_dict(torch.load(lstm_path, map_location=DEVICE))
-
-    egnn = egnn.to("gpu")
-    lstm = lstm.to("gpu")
+    egnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"egnn_{epoch}.pt"), map_location=DEVICE))
+    lstm.load_state_dict(torch.load(os.path.join(checkpointfolder, f"lstm_{epoch}.pt"), map_location=DEVICE))
+    egnn = egnn.to(DEVICE)
+    lstm = lstm.to(DEVICE)
 
     # Sample molecules
     print(f"Sampling {num} molecules:")
@@ -72,7 +77,7 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
 def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
     egnn.eval()
     lstm.eval()
-    softmax = nn.Softmax(dim=2)
+    softmax = nn.Softmax(dim=1)
     i2t, t2i = tokenizer()
 
     mol = OneMol(smiles, maxlen)
@@ -80,13 +85,14 @@ def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
 
     smiles_list, score_list = [], []
     for _ in trange(num_mols):
-        hiddens = egnn(g)
+        # initialize LSTM layers with hidden state and others with 0
+        h = egnn(g)
+        hiddens = tuple([h] + [torch.zeros(h.shape).to(h.device) for _ in range(lstm.n_layers - 1)])
         score = 0
         stop = False
         with torch.no_grad():
             pred_smls_list = []
-            pred_smls = torch.from_numpy(np.asarray([t2i["^"]])).to(DEVICE)
-
+            pred_smls = torch.from_numpy(np.asarray([t2i["^"]])).to(DEVICE).unsqueeze(0)
             while not stop:
                 pred, hiddens = lstm(pred_smls, hiddens)
 
@@ -108,12 +114,12 @@ def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
                 if i2t[pred] == "$" or len(pred_smls_list) > maxlen:  # stop once the end token is reached
                     stop = True
 
-        valid, smiles_j = is_valid_mol(''.join(i2t(i) for i in pred_smls_list), True)
+        valid, smiles_j = is_valid_mol(''.join(i2t[i] for i in pred_smls_list), True)
         if valid:
             smiles_list.append(smiles_j)
             score_list.append(score)
 
-    novels, inchiks, probs_abs = []
+    novels, inchiks, probs_abs = [], [], []
     for idx, smls in enumerate(smiles_list):
         ik = Chem.MolToInchiKey(Chem.MolFromSmiles(smls))
         if ik not in inchiks:

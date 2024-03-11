@@ -52,7 +52,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
 
     # Define paths
     path_model = f"models/{os.path.basename(filename)[:-4]}/"
-    path_loss = f"loss/{os.path.basename(filename)[:-4]}/"
+    path_loss = f"logs/{os.path.basename(filename)[:-4]}/"
     os.makedirs(path_model, exist_ok=True)
     os.makedirs(path_loss, exist_ok=True)
     print("Paths (model, loss): ", path_model, path_loss)
