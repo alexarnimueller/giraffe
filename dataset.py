@@ -25,8 +25,8 @@ class OneMol(Dataset):
         mol = MolFromSmiles(smils)
         atomids, is_ring, hyb, arom, edge_index = graph_from_mol(mol)
         smils = self.data.iloc[idx]["SMILES"] if len(smils) > self.max_len - 2 else smils
-        smils_pad = np.full(self.max_len, self.t2i[' '], dtype="uint8")
-        smils_pad[:len(smils) + 2] = [self.t2i['^']] + [self.t2i[c] for c in smils] + [self.t2i['$']]
+        smils_pad = np.full(self.max_len, self.t2i[" "], dtype="uint8")
+        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
         return Data(
             atomids=torch.LongTensor(atomids),
@@ -35,12 +35,12 @@ class OneMol(Dataset):
             arom=torch.LongTensor(arom),
             edge_index=torch.LongTensor(edge_index),
             trg_smi=torch.LongTensor(smils_pad.reshape(1, -1)),
-            num_nodes=len(atomids)
+            num_nodes=len(atomids),
         )
 
     def __len__(self):
         return 1
-    
+
     def len(self) -> int:
         return self.__len__()
 
@@ -65,8 +65,8 @@ class MolDataset(Dataset):
 
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
         smils = self.data.iloc[idx]["SMILES"] if len(smils) > self.max_len - 2 else smils
-        smils_pad = np.full(self.max_len, self.t2i[' '], dtype="uint8")
-        smils_pad[:len(smils) + 2] = [self.t2i['^']] + [self.t2i[c] for c in smils] + [self.t2i['$']]
+        smils_pad = np.full(self.max_len, self.t2i[" "], dtype="uint8")
+        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
         return Data(
             atomids=torch.LongTensor(atomids),
@@ -76,7 +76,7 @@ class MolDataset(Dataset):
             edge_index=torch.LongTensor(edge_index),
             trg_smi=torch.LongTensor(smils_pad.reshape(1, -1)),
             props=torch.FloatTensor(props),
-            num_nodes=len(atomids)
+            num_nodes=len(atomids),
         )
 
     def __len__(self):
@@ -108,17 +108,81 @@ def graph_from_mol(mol):
 
 
 def tokenizer():
-    """Function to generate all possible SMILES token and put them into two translation dictionaries
-    """
-    indices_token = {0: 'H', 1: '9', 2: 'D', 3: 'r', 4: 'T', 5: 'R', 6: 'V', 7: '4',
-                     8: 'c', 9: 'l', 10: 'b', 11: '.', 12: 'C', 13: 'Y', 14: 's', 15: 'B',
-                     16: 'k', 17: '+', 18: 'p', 19: '2', 20: '7', 21: '8', 22: 'O',
-                     23: '%', 24: 'o', 25: '6', 26: 'N', 27: 'A', 28: 't', 29: 'm',
-                     30: '(', 31: 'u', 32: 'Z', 33: '#', 34: 'M', 35: 'P', 36: 'G',
-                     37: 'I', 38: '=', 39: '-', 40: 'X', 41: '@', 42: 'E', 43: ':',
-                     44: '\\', 45: ')', 46: 'i', 47: 'K', 48: '/', 49: '{', 50: 'h',
-                     51: 'L', 52: 'n', 53: 'U', 54: '[', 55: '0', 56: 'y', 57: 'e',
-                     58: '3', 59: 'g', 60: 'f', 61: '}', 62: '1', 63: 'd', 64: 'W',
-                     65: '5', 66: 'S', 67: 'F', 68: ']', 69: 'a', 70: '^', 71: '$', 72: ' '}
+    """Function to generate all possible SMILES token and put them into two translation dictionaries"""
+    indices_token = {
+        0: "H",
+        1: "9",
+        2: "D",
+        3: "r",
+        4: "T",
+        5: "R",
+        6: "V",
+        7: "4",
+        8: "c",
+        9: "l",
+        10: "b",
+        11: ".",
+        12: "C",
+        13: "Y",
+        14: "s",
+        15: "B",
+        16: "k",
+        17: "+",
+        18: "p",
+        19: "2",
+        20: "7",
+        21: "8",
+        22: "O",
+        23: "%",
+        24: "o",
+        25: "6",
+        26: "N",
+        27: "A",
+        28: "t",
+        29: "m",
+        30: "(",
+        31: "u",
+        32: "Z",
+        33: "#",
+        34: "M",
+        35: "P",
+        36: "G",
+        37: "I",
+        38: "=",
+        39: "-",
+        40: "X",
+        41: "@",
+        42: "E",
+        43: ":",
+        44: "\\",
+        45: ")",
+        46: "i",
+        47: "K",
+        48: "/",
+        49: "{",
+        50: "h",
+        51: "L",
+        52: "n",
+        53: "U",
+        54: "[",
+        55: "0",
+        56: "y",
+        57: "e",
+        58: "3",
+        59: "g",
+        60: "f",
+        61: "}",
+        62: "1",
+        63: "d",
+        64: "W",
+        65: "5",
+        66: "S",
+        67: "F",
+        68: "]",
+        69: "a",
+        70: "^",
+        71: "$",
+        72: " ",
+    }
     token_indices = {v: k for k, v in indices_token.items()}
     return indices_token, token_indices

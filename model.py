@@ -7,16 +7,18 @@ from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import Adj, Size, Tensor
 
 from pygmt import GraphMultisetTransformer, weights_init
-from utils import AROMATICITY, ATOMTYPES, HYBRIDISATIONS, IS_RING
+from utils import DIM_EMBEDDING
 
 
 class FFNN(nn.Module):
     def __init__(self, input_dim=512, output_dim=128, hidden_dim=256, dropout=0.3):
         super(FFNN, self).__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, 2 * input_dim),
             nn.Dropout(dropout),
-            nn.SiLU(),
+            nn.ReLU(),
+            nn.Linear(2 * input_dim, hidden_dim),
+            nn.ReLU(),
             nn.Linear(hidden_dim, output_dim),
         )
         self.apply(weights_init)
@@ -39,7 +41,22 @@ class LSTM(nn.Module):
         self.norm_1 = nn.LayerNorm(embedding_dim, eps=0.001)
         self.norm_2 = nn.LayerNorm(hidden_dim, eps=0.001)
         self.fnn = nn.Linear(hidden_dim, input_dim)
-        self.apply(weights_init)
+
+        # initialize
+        nn.init.xavier_uniform_(self.fnn.weight)
+        nn.init.zeros_(self.fnn.bias)
+        nn.init.xavier_uniform_(self.lstm.weight_ih_l0)
+        nn.init.xavier_uniform_(self.lstm.weight_ih_l1)
+        nn.init.orthogonal_(self.lstm.weight_hh_l0)
+        nn.init.orthogonal_(self.lstm.weight_hh_l1)
+        self.lstm.bias_ih_l0.data.fill_(0.0)
+        self.lstm.bias_ih_l0.data[hidden_dim : 2 * hidden_dim].fill_(1.0)
+        self.lstm.bias_ih_l1.data.fill_(0.0)
+        self.lstm.bias_ih_l1.data[hidden_dim : 2 * hidden_dim].fill_(1.0)
+        self.lstm.bias_hh_l0.data.fill_(0.0)
+        self.lstm.bias_hh_l0.data[hidden_dim : 2 * hidden_dim].fill_(1.0)
+        self.lstm.bias_hh_l1.data.fill_(0.0)
+        self.lstm.bias_hh_l1.data[hidden_dim : 2 * hidden_dim].fill_(1.0)
 
     def forward(self, i, h):
         f = self.norm_1(self.embedding(i))
@@ -57,23 +74,15 @@ class GraphTransformer(nn.Module):
         mp_dim=64,
         kernel_dim=64,
         embeddings_dim=64,
+        rnn_dim=512,
+        rnn_layers=2,
         dropout=0.1,
         aggr="add",
     ):
         super(GraphTransformer, self).__init__()
 
         self.dropout = nn.Dropout(dropout)
-
-        self.atom_emb = nn.Embedding(
-            num_embeddings=len(ATOMTYPES), embedding_dim=embeddings_dim
-        )
-        self.is_ring_emb = nn.Embedding(
-            num_embeddings=len(IS_RING), embedding_dim=embeddings_dim
-        )
-        self.hyb_emb = nn.Embedding(num_embeddings=len(HYBRIDISATIONS), embedding_dim=embeddings_dim)
-        self.arom_emb = nn.Embedding(
-            num_embeddings=(len(AROMATICITY)), embedding_dim=embeddings_dim
-        )
+        self.embedding = nn.Embedding(DIM_EMBEDDING, embedding_dim=embeddings_dim)
 
         self.pre_egnn_mlp = nn.Sequential(
             nn.Linear(embeddings_dim * 4, kernel_dim * 2),
@@ -116,44 +125,51 @@ class GraphTransformer(nn.Module):
             )
 
         self.post_pooling_mlps = nn.ModuleList()
-        for _ in range(2):
+        for _ in range(rnn_layers):
             self.post_pooling_mlps.append(
                 nn.Sequential(
-                    nn.Linear(kernel_dim * pooling_heads, mlp_dim),
+                    nn.Linear(kernel_dim * pooling_heads, rnn_dim),
                     self.dropout,
                     nn.SiLU(),
-                    nn.Linear(mlp_dim, mlp_dim),
+                    nn.Linear(rnn_dim, 2 * rnn_dim),
+                    self.dropout,
                     nn.SiLU(),
-                    nn.Linear(mlp_dim, mlp_dim),
+                    nn.Linear(2 * rnn_dim, rnn_dim),
                 )
             )
-        self.apply(weights_init)
+        for m in [self.transformers, self.kernels, self.post_egnn_mlp, self.post_pooling_mlps]:
+            m.apply(weights_init)
+        nn.init.xavier_uniform_(self.embedding.weight)
 
     def forward(self, g_batch):
-        features = self.pre_egnn_mlp(torch.cat(
+        embedded = torch.cat(
             [
-                self.atom_emb(g_batch.atomids),
-                self.is_ring_emb(g_batch.is_ring),
-                self.hyb_emb(g_batch.hyb),
-                self.arom_emb(g_batch.arom),
+                self.embedding(g_batch.atomids),
+                self.embedding(g_batch.is_ring),
+                self.embedding(g_batch.hyb),
+                self.embedding(g_batch.arom),
             ],
             dim=1,
-        ))
+        )
+        features = self.pre_egnn_mlp(embedded)
 
         feature_list = [kernel(x=features, edge_index=g_batch.edge_index) for kernel in self.kernels]
         features = self.post_egnn_mlp(torch.cat(feature_list, dim=1))
 
-        feature_list = [trsnfrmr(x=features, batch=g_batch.batch, edge_index=g_batch.edge_index)
-                        for trsnfrmr in self.transformers]
+        feature_list = [
+            trsnfrmr(x=features, batch=g_batch.batch, edge_index=g_batch.edge_index) for trsnfrmr in self.transformers
+        ]
         features = torch.cat(feature_list, dim=1)
 
         feature_list = [mlp(features).unsqueeze(0) for mlp in self.post_pooling_mlps]
+
         return torch.cat(feature_list, dim=0)
 
 
 class EGNN_sparse(MessagePassing):
     """PyTorch geometric message-passing layer implementing E(n)-Equivariant Graph Neural Networks
-       for 2D molecular graphs."""
+    for 2D molecular graphs."""
+
     def __init__(self, feats_dim, m_dim=32, dropout=0.1, aggr="add", **kwargs):
         """Initialization of the 2D message passing layer.
 

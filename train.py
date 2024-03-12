@@ -29,24 +29,33 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.argument("filename")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-e", "--epochs", default=100, help="Nr. of epochs to train.")
+@click.option("-e", "--epochs", default=50, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.2, help="Dropout fraction.")
-@click.option("-b", "--batch_size", default=96, help="Number of molecules per batch.")
-@click.option("-l", "--lr", default=0.001, help="Learning rate.")
+@click.option("-b", "--batch_size", default=128, help="Number of molecules per batch.")
+@click.option("-l", "--lr", default=0.0005, help="Learning rate.")
 @click.option("-f", "--lr_factor", default=0.75, help="Factor for learning rate decay.")
 @click.option("-s", "--lr_step", default=5, help="Step size for learning rate decay.")
-@click.option("-a", "--save_after", default=10, help="Epoch steps to save model.")
+@click.option("-a", "--save_after", default=5, help="Epoch steps to save model.")
 def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_factor, lr_step, save_after):
     # Write parameters to config file and define variables
     ini = configparser.ConfigParser()
-    config = {"filename": filename, "epochs": epochs, "dropout": dropout, "batch_size": batch_size, "lr": lr, 
-              "lr_factor": lr_factor, "lr_step": lr_step, "save_after": save_after}
+    config = {
+        "filename": filename,
+        "epochs": epochs,
+        "dropout": dropout,
+        "batch_size": batch_size,
+        "lr": lr,
+        "lr_factor": lr_factor,
+        "lr_step": lr_step,
+        "save_after": save_after,
+    }
     config["dim_model"] = dim_model = 128
     config["dim_hidden"] = dim_hidden = 512
     config["n_layers"] = n_layers = 2
     config["n_kernels"] = n_kernels = 3
     config["n_pool_heads"] = n_pool_heads = 4
-    config["n_props"] = n_props = rdkit_descirptors([Chem.MolFromSmiles('O1CCNCC1')]).shape[1]
+    config["rnn_dim"] = rnn_dim = 512
+    config["n_props"] = n_props = rdkit_descirptors([Chem.MolFromSmiles("O1CCNCC1")]).shape[1]
     _, t2i = tokenizer()
     config["alphabet"] = alphabet = len(t2i)
 
@@ -58,7 +67,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     print("Paths (model, loss): ", path_model, path_loss)
 
     # store config file for later sampling
-    with open(f'{path_model}config.ini', 'w') as configfile:
+    with open(f"{path_model}config.ini", "w") as configfile:
         ini["CONFIG"] = config
         ini.write(configfile)
 
@@ -69,7 +78,9 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
         mlp_dim=dim_hidden,
         kernel_dim=dim_model,
         embeddings_dim=dim_model,
-        dropout=dropout
+        dropout=dropout,
+        rnn_dim=rnn_dim,
+        rnn_layers=n_layers,
     )
     lstm = LSTM(
         input_dim=alphabet,
@@ -101,14 +112,10 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     writer = SummaryWriter(path_loss)
     criterion1 = nn.CrossEntropyLoss()
     criterion2 = nn.MSELoss()
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=lr_step, gamma=lr_factor
-    )
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_factor)
     train_dataset = MolDataset(filename=filename, delimiter=delimiter, smls_col=smls_col)
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=4
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
     losses_lstm, losses_prop = [], []
     for epoch in range(epochs):
@@ -164,18 +171,17 @@ def train_one_epoch(
         loss_per_token = loss_mol.cpu().detach().numpy()[0] / j
         # Properties loss
         pred_props = ffnn(h.mean(0))
-        loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
-        # Combine losses
-        loss = loss_mol + loss_props
-        loss.backward(retain_graph=True)
-        # torch.nn.utils.clip_grad_norm_(lstm.parameters(), 0.5)  # clip gradient of LSTM
+        loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))) / train_loader.batch_size
+        # Combine losses (weight properties less to balance losses)
+        loss = loss_mol + loss_props * 0.1
+        loss.backward()
         optimizer.step()
-        total_props += loss_props.cpu().detach().numpy()
+        total_props += loss_props.cpu().detach().numpy() * 0.1
         total_token += loss_per_token
         # write tensorboard summary
         if step > 0:
-            writer.add_scalar('loss_train_lstm', total_token / step, epoch * len(train_loader) + step)
-            writer.add_scalar('loss_train_prop', total_props / step, epoch * len(train_loader) + step)
+            writer.add_scalar("loss_train_lstm", total_token / step, epoch * len(train_loader) + step)
+            writer.add_scalar("loss_train_prop", total_props / step, epoch * len(train_loader) + step)
             if step % 500 == 0:
                 print(f"\n\tLoss LSTM: {total_token / step:.3f}, Loss Props.: {total_props / step:.2f}")
         step += 1
