@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import configparser
 import os
 import time
 
@@ -36,15 +37,18 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-s", "--lr_step", default=5, help="Step size for learning rate decay.")
 @click.option("-a", "--save_after", default=10, help="Epoch steps to save model.")
 def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_factor, lr_step, save_after):
-    # Load hyperparameters from config file and define globle variables
-    dim_model = 128
-    dim_hidden = 512
-    n_layers = 2
-    n_kernels = 3
-    n_pool_heads = 4
-    n_props = rdkit_descirptors([Chem.MolFromSmiles('O1CCNCC1')]).shape[1]
+    # Write parameters to config file and define variables
+    ini = configparser.ConfigParser()
+    config = {"filename": filename, "epochs": epochs, "dropout": dropout, "batch_size": batch_size, "lr": lr, 
+              "lr_factor": lr_factor, "lr_step": lr_step, "save_after": save_after}
+    config["dim_model"] = dim_model = 128
+    config["dim_hidden"] = dim_hidden = 512
+    config["n_layers"] = n_layers = 2
+    config["n_kernels"] = n_kernels = 3
+    config["n_pool_heads"] = n_pool_heads = 4
+    config["n_props"] = n_props = rdkit_descirptors([Chem.MolFromSmiles('O1CCNCC1')]).shape[1]
     _, t2i = tokenizer()
-    alphabet = len(t2i)
+    config["alphabet"] = alphabet = len(t2i)
 
     # Define paths
     path_model = f"models/{os.path.basename(filename)[:-4]}/"
@@ -52,6 +56,11 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     os.makedirs(path_model, exist_ok=True)
     os.makedirs(path_loss, exist_ok=True)
     print("Paths (model, loss): ", path_model, path_loss)
+
+    # store config file for later sampling
+    with open(f'{path_model}config.ini', 'w') as configfile:
+        ini["CONFIG"] = config
+        ini.write(configfile)
 
     # Create models
     egnn = GraphTransformer(
