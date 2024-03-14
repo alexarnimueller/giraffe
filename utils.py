@@ -4,6 +4,7 @@
 from multiprocessing import Process, Queue, cpu_count
 
 import numpy as np
+from rdkit import Chem
 from rdkit.Chem import (
     CanonSmiles,
     MolFromSmiles,
@@ -246,3 +247,76 @@ def inchikey_from_smileslist(smiles):
     for _ in range(cpu_count()):
         rslt.extend(queue.get(timeout=10))
     return list(rslt)
+
+
+def bond_features(bond, use_chirality=True):
+    bt = bond.GetBondType()
+    bond_feats = [
+        bt == Chem.rdchem.BondType.SINGLE,
+        bt == Chem.rdchem.BondType.DOUBLE,
+        bt == Chem.rdchem.BondType.TRIPLE,
+        bt == Chem.rdchem.BondType.AROMATIC,
+        bond.GetIsConjugated(),
+        bond.IsInRing(),
+    ]
+    if use_chirality:
+        bond_feats = bond_feats + one_of_k_encoding_unk(
+            str(bond.GetStereo()), ["STEREONONE", "STEREOANY", "STEREOZ", "STEREOE"]
+        )
+    return np.array(bond_feats, dtype=int)
+
+
+def atom_features(atom, explicit_H=True, use_chirality=True):
+    results = (
+        one_of_k_encoding_unk(
+            atom.GetSymbol(),
+            ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B", "Si", "other"],
+        )
+        + one_of_k_encoding(atom.GetDegree(), [0, 1, 2, 3, 4, 5, 6])
+        + [atom.GetFormalCharge(), atom.GetNumRadicalElectrons()]
+        + one_of_k_encoding_unk(
+            atom.GetHybridization(),
+            [
+                Chem.rdchem.HybridizationType.SP,
+                Chem.rdchem.HybridizationType.SP2,
+                Chem.rdchem.HybridizationType.SP3,
+                Chem.rdchem.HybridizationType.SP3D,
+                Chem.rdchem.HybridizationType.SP3D2,
+                "other",
+            ],
+        )
+        + [atom.GetIsAromatic()]
+    )
+    # In case of explicit hydrogen(QM8, QM9), avoid calling `GetTotalNumHs`
+    if not explicit_H:
+        results = results + one_of_k_encoding_unk(atom.GetTotalNumHs(), [0, 1, 2, 3, 4])
+    if use_chirality:
+        try:
+            results = (
+                results
+                + one_of_k_encoding_unk(atom.GetProp("_CIPCode"), ["R", "S"])
+                + [atom.HasProp("_ChiralityPossible")]
+            )
+        except Exception:
+            results = results + [False, False] + [atom.HasProp("_ChiralityPossible")]
+    return np.array(results, dtype=int)
+
+
+def one_of_k_encoding(x, allowable_set):
+    if x not in allowable_set:
+        raise Exception("input {0} not in allowable set{1}:".format(x, allowable_set))
+    return [x == s for s in allowable_set]
+
+
+def one_of_k_encoding_unk(x, allowable_set):
+    """Maps inputs not in the allowable set to the last element."""
+    if x not in allowable_set:
+        x = allowable_set[-1]
+    return [x == s for s in allowable_set]
+
+
+def get_input_dims():
+    return (
+        len(atom_features(Chem.MolFromSmiles("CCO").GetAtoms()[0])),
+        len(bond_features(Chem.MolFromSmiles("CCO").GetBonds()[0])),
+    )
