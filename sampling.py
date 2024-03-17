@@ -11,11 +11,11 @@ import torch
 import torch.nn as nn
 from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
-from tqdm import trange
+from torch_geometric.loader import DataLoader
 
 from dataset import OneMol, tokenizer
-from model import LSTM, GraphTransformer
-from utils import is_valid_mol
+from model import LSTM, AttentiveFP
+from utils import get_input_dims, is_valid_mol
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -32,7 +32,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-m", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
 def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     assert Chem.MolFromSmiles(smiles), "invalid SMILES string!"
-
+    dim_atom, dim_bond = get_input_dims()
     ini = configparser.ConfigParser()
     ini.read(os.path.join(checkpointfolder, "config.ini"))
     conf = {}
@@ -46,32 +46,32 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
                 conf[k] = v
 
     # Define models
-    lstm = LSTM(
+    rnn = LSTM(
         input_dim=conf["alphabet"],
         embedding_dim=conf["dim_model"],
         hidden_dim=conf["dim_hidden"],
         layers=conf["n_layers"],
         dropout=conf["dropout"],
     )
-    egnn = GraphTransformer(
-        n_kernels=conf["n_kernels"],
-        pooling_heads=conf["n_pool_heads"],
-        mlp_dim=conf["dim_hidden"],
-        kernel_dim=conf["dim_model"],
-        embeddings_dim=conf["dim_model"],
+    gnn = AttentiveFP(
+        in_channels=dim_atom,
+        hidden_channels=conf["dim_hidden"],
+        out_channels=conf["dim_rnn"],
+        out_n=conf["n_layers"],
         dropout=conf["dropout"],
+        edge_dim=dim_bond,
+        num_layers=conf["n_layers"],
+        num_timesteps=conf["n_kernels"],
     )
 
-    egnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"egnn_{epoch}.pt"), map_location=DEVICE))
-    lstm.load_state_dict(torch.load(os.path.join(checkpointfolder, f"lstm_{epoch}.pt"), map_location=DEVICE))
-    egnn = egnn.to(DEVICE)
-    lstm = lstm.to(DEVICE)
+    gnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"egnn_{epoch}.pt"), map_location=DEVICE))
+    rnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"lstm_{epoch}.pt"), map_location=DEVICE))
+    gnn = gnn.to(DEVICE)
+    rnn = rnn.to(DEVICE)
 
     # Sample molecules
     print(f"Sampling {num} molecules:")
-    novels, probs_abs = temperature_sampling(
-        egnn=egnn, lstm=lstm, temp=temp, smiles=smiles, num_mols=num, maxlen=maxlen
-    )
+    novels, probs_abs = temperature_sampling(egnn=gnn, lstm=rnn, temp=temp, smiles=smiles, num_mols=num, maxlen=maxlen)
 
     # Save predictions
     df = pd.DataFrame({"SMILES": novels, "log-likelihoodog": probs_abs})
@@ -87,12 +87,14 @@ def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
     i2t, t2i = tokenizer()
 
     mol = OneMol(smiles, maxlen)
-    g = mol[0].to(DEVICE)
+    loader = DataLoader(mol, batch_size=1)
+    g = next(iter(loader)).to(DEVICE)
 
     smiles_list, score_list = [], []
     for _ in range(num_mols):  # trange(
         # initialize LSTM layers with hidden state and others with 0
-        h = egnn(g)
+        h = egnn(g.atoms, g.edge_index, g.bonds, g.batch)
+        print(h.shape)
         hiddens = tuple([h] + [torch.zeros(h.shape).to(h.device) for _ in range(lstm.n_layers - 1)])
         score = 0
         stop = False

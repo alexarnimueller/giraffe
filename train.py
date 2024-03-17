@@ -57,7 +57,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     config["dim_hidden"] = dim_hidden = 512
     config["n_layers"] = n_layers = 2
     config["n_kernels"] = n_kernels = 3
-    config["rnn_dim"] = dim_rnn = 512
+    config["dim_rnn"] = dim_rnn = 512
     config["n_props"] = n_props = rdkit_descirptors([Chem.MolFromSmiles("O1CCNCC1")]).shape[1]
     _, t2i = tokenizer()
     config["alphabet"] = alphabet = len(t2i)
@@ -86,9 +86,9 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
         num_layers=n_layers,
         num_timesteps=n_kernels,
     )
+    # TODO: adapt parameters
     rnn = LSTM(
-        input_dim=alphabet,
-        embedding_dim=dim_model,
+        size_vocab=alphabet,
         hidden_dim=dim_hidden,
         layers=n_layers,
         dropout=dropout,
@@ -157,10 +157,14 @@ def train_one_epoch(
         optimizer.zero_grad()
         h = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
         # initialize LSTM layers with hidden state and others with 0
-        hiddens = tuple([h] + [torch.zeros(h.shape).to(h.device) for _ in range(rnn.n_layers - 1)])
+        c_0 = tuple([torch.zeros(h.shape).to(h.device) for _ in range(rnn.n_layers - 1)])
         # SMILES loss
         loss_mol = torch.zeros(1).to(DEVICE)
-        for j in range(trg.size(0) - 1):
+        # start with initial embedding from graph
+        forward, hiddens = rnn(h, c_0)
+        loss_forward = criterion1(forward, trg[1, :])
+        loss_mol = torch.add(loss_mol, loss_forward)
+        for j in range(1, trg.size(0) - 1):
             target = trg[j + 1, :]
             prev_token = trg[j, :].unsqueeze(0)
             forward, hiddens = rnn(prev_token, hiddens)

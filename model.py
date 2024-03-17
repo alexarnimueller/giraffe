@@ -10,6 +10,58 @@ from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.typing import Adj, OptTensor
 from torch_geometric.utils import softmax
 
+# class DecoderRNN(nn.Module):
+#     def __init__(self, embed_size, hidden_size, vocab_size, num_layers=2):
+#         super(DecoderRNN, self).__init__()
+
+#         # define the properties
+#         self.embed_size = embed_size
+#         self.hidden_size = hidden_size
+#         self.vocab_size = vocab_size
+
+#         # lstm cell
+#         self.lstm = nn.Sequential(nn.LSTMCell(input_size=embed_size, hidden_size=hidden_size))
+#         for _ in range(num_layers - 1):
+#             self.lstm.append(nn.LSTMCell(input_size=hidden_size, hidden_size=hidden_size))
+
+#         # output fully connected layer
+#         self.fc_out = nn.Linear(in_features=self.hidden_size, out_features=self.vocab_size)
+
+#         # embedding layer
+#         self.embed = nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=self.embed_size)
+
+#         # activations
+#         self.softmax = nn.Softmax(dim=1)
+
+#     def forward(self, features, captions):
+#         # batch size
+#         batch_size = features.size(0)
+
+#         # init the hidden and cell states to zeros
+#         hidden_state = torch.zeros((batch_size, self.hidden_size)).cuda()
+#         cell_state = torch.zeros((batch_size, self.hidden_size)).cuda()
+
+#         # define the output tensor placeholder
+#         outputs = torch.empty((batch_size, captions.size(1), self.vocab_size)).cuda()
+
+#         # embed the captions
+#         captions_embed = self.embed(captions)
+
+#         # first step with embedding as input
+#         hidden_state, cell_state = self.lstm(features, (hidden_state, cell_state))
+
+#         # for the 2nd+ time step, using teacher forcer
+#         for t in range(1, captions.size(1)):
+#             hidden_state, cell_state = self.lstm_cell(captions_embed[:, t, :], (hidden_state, cell_state))
+
+#             # output of the attention mechanism
+#             out = self.fc_out(hidden_state)
+
+#             # build the output tensor
+#             outputs[:, t, :] = out
+
+#         return outputs
+
 
 class FFNN(nn.Module):
     def __init__(self, input_dim=512, output_dim=128, hidden_dim=256, dropout=0.3):
@@ -26,19 +78,18 @@ class FFNN(nn.Module):
 
 
 class LSTM(nn.Module):
-    def __init__(self, input_dim=64, embedding_dim=128, hidden_dim=256, layers=2, dropout=0.3):
+    def __init__(self, size_vocab=64, hidden_dim=512, layers=2, dropout=0.3):
         super(LSTM, self).__init__()
         self.n_layers = layers
-        self.embedding = nn.Embedding(input_dim, embedding_dim)
         self.lstm = nn.LSTM(
-            input_size=embedding_dim,
+            input_size=hidden_dim,
             hidden_size=hidden_dim,
             num_layers=layers,
             dropout=dropout,
         )
-        self.norm_1 = nn.LayerNorm(embedding_dim, eps=0.001)
+        self.norm_1 = nn.LayerNorm(hidden_dim, eps=0.001)
         self.norm_2 = nn.LayerNorm(hidden_dim, eps=0.001)
-        self.fnn = nn.Linear(hidden_dim, input_dim)
+        self.fnn = nn.Linear(hidden_dim, size_vocab)
 
     def reset_parameters(self):
         for m in [
@@ -51,7 +102,7 @@ class LSTM(nn.Module):
             glorot(m)
 
     def forward(self, i, h):
-        f = self.norm_1(self.embedding(i))
+        f = self.norm_1(i)
         f, h = self.lstm(f, h)
         f = self.fnn(self.norm_2(f)).squeeze(0)
         return f, h
