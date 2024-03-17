@@ -53,7 +53,8 @@ class AttFPDataset(Dataset):
         # Load smiles dataset
         print("Reading SMILES dataset...")
         self.data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
-        self.max_len = self.data["SMILES"].apply(lambda x: len(x)).max() + 2
+        self.max_len = self.data["SMILES"].apply(lambda x: len(x)).max()
+        print("Max Length: ", self.max_len)
 
     def __getitem__(self, idx):
         mol = MolFromSmiles(self.data.iloc[idx]["SMILES"])
@@ -61,9 +62,10 @@ class AttFPDataset(Dataset):
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
-        smils = self.data.iloc[idx]["SMILES"] if len(smils) > self.max_len - 2 else smils
-        smils_pad = np.full(self.max_len, self.t2i[" "], dtype="uint8")
-        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
+        if len(smils) + 1 > self.max_len:
+            smils = self.data.iloc[idx]["SMILES"]
+        smils_pad = np.full(self.max_len + 1, self.t2i[" "], dtype="uint8")
+        smils_pad[: len(smils) + 1] = [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
         return Data(
             atoms=torch.FloatTensor(atom_feats),
@@ -100,7 +102,7 @@ def attentive_fp_features(mol):
 def tokenizer():
     """Function to generate all possibly relevant SMILES token and put them into two translation dictionaries"""
     indices_token = {
-        0: "^",
+        0: " ",
         1: "C",
         2: "N",
         3: "O",
@@ -145,7 +147,6 @@ def tokenizer():
         42: "9",
         43: "+",
         44: "$",
-        45: " ",
     }
     token_indices = {v: k for k, v in indices_token.items()}
     return indices_token, token_indices

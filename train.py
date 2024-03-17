@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 
 from dataset import AttFPDataset, tokenizer
 from descriptors import rdkit_descirptors
-from model import FFNN, LSTM, AttentiveFP
+from model import FFNN, RNN, AttentiveFP
 from utils import get_input_dims
 
 # from descriptors import rdkit_descirptors
@@ -35,7 +35,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
 @click.option("-e", "--epochs", default=50, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.2, help="Dropout fraction.")
-@click.option("-b", "--batch_size", default=128, help="Number of molecules per batch.")
+@click.option("-b", "--batch_size", default=32, help="Number of molecules per batch.")
 @click.option("-l", "--lr", default=0.0005, help="Learning rate.")
 @click.option("-f", "--lr_factor", default=0.9, help="Factor for learning rate decay.")
 @click.option("-s", "--lr_step", default=3, help="Step size for learning rate decay.")
@@ -59,7 +59,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     config["n_kernels"] = n_kernels = 3
     config["dim_rnn"] = dim_rnn = 512
     config["n_props"] = n_props = rdkit_descirptors([Chem.MolFromSmiles("O1CCNCC1")]).shape[1]
-    _, t2i = tokenizer()
+    i2t, t2i = tokenizer()
     config["alphabet"] = alphabet = len(t2i)
     dim_atom, dim_bond = get_input_dims()
 
@@ -80,14 +80,12 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
         in_channels=dim_atom,
         hidden_channels=dim_hidden,
         out_channels=dim_rnn,
-        out_n=n_layers,
         dropout=dropout,
         edge_dim=dim_bond,
         num_layers=n_layers,
         num_timesteps=n_kernels,
     )
-    # TODO: adapt parameters
-    rnn = LSTM(
+    rnn = RNN(
         size_vocab=alphabet,
         hidden_dim=dim_hidden,
         layers=n_layers,
@@ -111,8 +109,8 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     print(f"Total Nr parameters:  {(rnn_params + gnn_params) / 1e6:.2f}M")
 
     # Define optimizer and criterion
-    opt_params = list(rnn.parameters()) + list(gnn.parameters())
-    optimizer = torch.optim.Adam(opt_params, lr=lr, betas=(0.9, 0.999))
+    opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
+    optimizer = torch.optim.Adam(opt_params, lr=lr)
     writer = SummaryWriter(path_loss)
     criterion1 = nn.CrossEntropyLoss(ignore_index=t2i[" "], reduction="sum")
     criterion2 = nn.MSELoss()
@@ -123,7 +121,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     for epoch in range(1, epochs + 1):
         print(f" ---------- Epoch {epoch} ---------- ")
         time_start = time.time()
-        l_s, l_p = train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch)
+        l_s, l_p = train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, i2t)
         scheduler.step()
         loop_time = time.time() - time_start
         print("Epoch:", epoch, "Loss SMILES:", l_s, "Loss Props.:", l_p, "Time:", loop_time)
@@ -144,42 +142,60 @@ def train_one_epoch(
     train_loader,
     writer,
     epoch,
+    i2t
 ):
     gnn.train()
     rnn.train()
     mlp.train()
     total_token, total_props, step = 0, 0, 0
     for g in tqdm(train_loader):
+        optimizer.zero_grad()
+
+        # graph and target smiles
         g = g.to(DEVICE)
         trg = g.trg_smi
         trg = torch.transpose(trg, 0, 1)
+        # print("\n", "".join([i2t[i] for i in trg.flatten().cpu().detach().numpy()]).strip())
+        # get GNN embedding as input for RNN and FFNN
+        h_g = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
 
-        optimizer.zero_grad()
-        h = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
-        # initialize LSTM layers with hidden state and others with 0
-        c_0 = tuple([torch.zeros(h.shape).to(h.device) for _ in range(rnn.n_layers - 1)])
-        # SMILES loss
+        # get RNN predictions (teacher enforced)
+        # preds = rnn(h_g, trg)
+
+        # --------------------
         loss_mol = torch.zeros(1).to(DEVICE)
+
         # start with initial embedding from graph
-        forward, hiddens = rnn(h, c_0)
-        loss_forward = criterion1(forward, trg[1, :])
+        h0 = torch.zeros((rnn.n_layers, h_g.size(1), rnn.hidden_dim)).to(DEVICE)
+        nxt, hn = rnn(h_g, h0, step=0)  # step 0 = no token embedding (use GNN output)
+        loss_forward = criterion1(nxt, trg[0, :])
         loss_mol = torch.add(loss_mol, loss_forward)
-        for j in range(1, trg.size(0) - 1):
-            target = trg[j + 1, :]
-            prev_token = trg[j, :].unsqueeze(0)
-            forward, hiddens = rnn(prev_token, hiddens)
-            loss_forward = criterion1(forward, target)
+
+        # now get it for every token using Teacher Forcing
+        for j in range(trg.size(0) - 1):
+            nxt, hn = rnn(trg[j, :].unsqueeze(0), hn, step=j + 1)
+            loss_forward = criterion1(nxt, trg[j + 1, :])
             loss_mol = torch.add(loss_mol, loss_forward)
-        loss_per_token = loss_mol.cpu().detach().numpy()[0] / j
+        loss_per_token = loss_mol.cpu().detach().numpy()[0] / (j + 1)
+
+        # token = torch.argmax(preds, dim=2).flatten().cpu().detach().numpy()
+        # print("".join([i2t[i] for i in token]).strip())
+        # loss_mol = criterion1(preds.reshape(preds.size(1), preds.size(2), preds.size(0)),
+        #                       trg.reshape(trg.size(1), trg.size(0)))
+        # loss_per_token = torch.divide(loss_mol, trg.size(0))
+        # print(loss_per_token)
+
         # Properties loss
-        pred_props = mlp(h.mean(0))
+        pred_props = mlp(h_g.mean(0))
         loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
-        # Combine losses (weight properties less to balance losses)
-        loss = loss_mol + loss_props * 0.1
+
+        # Combine losses
+        loss = loss_mol + loss_props
         loss.backward()
         optimizer.step()
-        total_props += loss_props.cpu().detach().numpy() * 0.1
+        total_props += loss_props.cpu().detach().numpy()
         total_token += loss_per_token
+
         # write tensorboard summary
         if step > 0:
             writer.add_scalar("loss_train_lstm", total_token / step, (epoch - 1) * len(train_loader) + step)

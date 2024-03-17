@@ -10,58 +10,6 @@ from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.typing import Adj, OptTensor
 from torch_geometric.utils import softmax
 
-# class DecoderRNN(nn.Module):
-#     def __init__(self, embed_size, hidden_size, vocab_size, num_layers=2):
-#         super(DecoderRNN, self).__init__()
-
-#         # define the properties
-#         self.embed_size = embed_size
-#         self.hidden_size = hidden_size
-#         self.vocab_size = vocab_size
-
-#         # lstm cell
-#         self.lstm = nn.Sequential(nn.LSTMCell(input_size=embed_size, hidden_size=hidden_size))
-#         for _ in range(num_layers - 1):
-#             self.lstm.append(nn.LSTMCell(input_size=hidden_size, hidden_size=hidden_size))
-
-#         # output fully connected layer
-#         self.fc_out = nn.Linear(in_features=self.hidden_size, out_features=self.vocab_size)
-
-#         # embedding layer
-#         self.embed = nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=self.embed_size)
-
-#         # activations
-#         self.softmax = nn.Softmax(dim=1)
-
-#     def forward(self, features, captions):
-#         # batch size
-#         batch_size = features.size(0)
-
-#         # init the hidden and cell states to zeros
-#         hidden_state = torch.zeros((batch_size, self.hidden_size)).cuda()
-#         cell_state = torch.zeros((batch_size, self.hidden_size)).cuda()
-
-#         # define the output tensor placeholder
-#         outputs = torch.empty((batch_size, captions.size(1), self.vocab_size)).cuda()
-
-#         # embed the captions
-#         captions_embed = self.embed(captions)
-
-#         # first step with embedding as input
-#         hidden_state, cell_state = self.lstm(features, (hidden_state, cell_state))
-
-#         # for the 2nd+ time step, using teacher forcer
-#         for t in range(1, captions.size(1)):
-#             hidden_state, cell_state = self.lstm_cell(captions_embed[:, t, :], (hidden_state, cell_state))
-
-#             # output of the attention mechanism
-#             out = self.fc_out(hidden_state)
-
-#             # build the output tensor
-#             outputs[:, t, :] = out
-
-#         return outputs
-
 
 class FFNN(nn.Module):
     def __init__(self, input_dim=512, output_dim=128, hidden_dim=256, dropout=0.3):
@@ -77,35 +25,67 @@ class FFNN(nn.Module):
         return self.mlp(x)
 
 
-class LSTM(nn.Module):
+class RNN(nn.Module):
     def __init__(self, size_vocab=64, hidden_dim=512, layers=2, dropout=0.3):
-        super(LSTM, self).__init__()
+        super(RNN, self).__init__()
+
+        self.size_vocab = size_vocab
         self.n_layers = layers
-        self.lstm = nn.LSTM(
+        self.hidden_dim = hidden_dim
+
+        self.norm = nn.LayerNorm(hidden_dim, eps=0.001)
+        self.embed = nn.Embedding(num_embeddings=size_vocab, embedding_dim=hidden_dim)
+        self.gru = nn.GRU(
             input_size=hidden_dim,
             hidden_size=hidden_dim,
             num_layers=layers,
             dropout=dropout,
         )
-        self.norm_1 = nn.LayerNorm(hidden_dim, eps=0.001)
-        self.norm_2 = nn.LayerNorm(hidden_dim, eps=0.001)
-        self.fnn = nn.Linear(hidden_dim, size_vocab)
+        self.fcn = nn.Linear(hidden_dim, size_vocab)
 
     def reset_parameters(self):
         for m in [
-            self.fnn.weight,
-            self.lstm.weight_ih_l0,
-            self.lstm.weight_ih_l1,
-            self.lstm.weight_hh_l0,
-            self.lstm.weight_hh_l1,
+            self.fcn.weight,
+            self.gru.weight_ih_l0,
+            self.gru.weight_ih_l1,
+            self.gru.weight_hh_l0,
+            self.gru.weight_hh_l1,
         ]:
             glorot(m)
 
-    def forward(self, i, h):
-        f = self.norm_1(i)
-        f, h = self.lstm(f, h)
-        f = self.fnn(self.norm_2(f)).squeeze(0)
-        return f, h
+    def forward(self, features, hidden, step):
+        if step:  # first step no embedding, use input from GNN
+            features = self.embed(features)
+        features = self.norm(features)
+        out, hn = self.gru(features, hidden)
+        out = self.fcn(out[-1]).clamp(min=1e-8)  # clamp to prevent NaN in loss due to softmax
+        return out, hn
+
+    def forward2(self, features, smiles):
+        # embed the full smiles
+        smls_embed = self.embed(smiles)
+
+        # init the hidden and cell states to zeros
+        h0 = torch.zeros((self.n_layers, features.size(1), self.hidden_dim)).to(features.device)
+
+        # define an output tensor placeholder
+        outputs = torch.empty((smiles.size(0), features.size(1), self.size_vocab)).to(features.device)
+
+        # first step with embedding as input
+        out, hn = self.gru(features, h0)
+        outputs[0, :, :] = self.fcn(out[-1])
+
+        # for the 2nd+ time step, use teacher forcer
+        for t in range(1, smiles.size(0)):
+            out, hn = self.gru(smls_embed[t, :, :].unsqueeze(0), hn)
+            outputs[t, :, :] = self.fcn(out[-1])
+
+        return outputs.clamp(min=1e-8)  # clamp outputs to potentially get rid of softmax nan loss
+
+# >>> rnn = nn.GRU(10, 20, 2)  # vocab, hidden, layers
+# >>> input = torch.randn(5, 3, 10)  # seq len, batch, vocab
+# >>> h0 = torch.randn(2, 3, 20)  # layers, batch, hidden
+# >>> output, hn = rnn(input, h0)  # layers, batch, hidden
 
 
 class GATEConv(MessagePassing):
@@ -177,7 +157,6 @@ class AttentiveFP(torch.nn.Module):
         in_channels: int,
         hidden_channels: int,
         out_channels: int,
-        out_n: int,
         edge_dim: int,
         num_layers: int,
         num_timesteps: int,
@@ -188,7 +167,6 @@ class AttentiveFP(torch.nn.Module):
         self.in_channels = in_channels
         self.hidden_channels = hidden_channels
         self.out_channels = out_channels
-        self.out_n = out_n
         self.edge_dim = edge_dim
         self.num_layers = num_layers
         self.num_timesteps = num_timesteps
@@ -253,8 +231,7 @@ class AttentiveFP(torch.nn.Module):
 
         # Predictor:
         out = F.dropout(out, p=self.dropout, training=self.training)
-        out = self.lin2(out)
-        return torch.cat([out.unsqueeze(0)] * self.out_n, dim=0)
+        return self.lin2(out)
 
     def __repr__(self) -> str:
         return (
