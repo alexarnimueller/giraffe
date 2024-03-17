@@ -24,8 +24,8 @@ class OneMol(Dataset):
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = self.data.iloc[idx]["SMILES"] if len(smils) > self.max_len - 2 else smils
-        smils_pad = np.full(self.max_len, self.t2i[" "], dtype="uint8")
-        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
+        smils_pad = np.full(self.max_len + 1, self.t2i[" "], dtype="uint8")
+        smils_pad[: len(smils) + 1] = [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
         return Data(
             atoms=torch.FloatTensor(atom_feats),

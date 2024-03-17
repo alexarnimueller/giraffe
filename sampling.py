@@ -14,7 +14,7 @@ from rdkit.rdBase import DisableLog
 from torch_geometric.loader import DataLoader
 
 from dataset import OneMol, tokenizer
-from model import LSTM, AttentiveFP
+from model import RNN, AttentiveFP
 from utils import get_input_dims, is_valid_mol
 
 for level in RDLogger._levels:
@@ -46,9 +46,8 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
                 conf[k] = v
 
     # Define models
-    rnn = LSTM(
-        input_dim=conf["alphabet"],
-        embedding_dim=conf["dim_model"],
+    rnn = RNN(
+        size_vocab=conf["alphabet"],
         hidden_dim=conf["dim_hidden"],
         layers=conf["n_layers"],
         dropout=conf["dropout"],
@@ -57,7 +56,6 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
         in_channels=dim_atom,
         hidden_channels=conf["dim_hidden"],
         out_channels=conf["dim_rnn"],
-        out_n=conf["n_layers"],
         dropout=conf["dropout"],
         edge_dim=dim_bond,
         num_layers=conf["n_layers"],
@@ -71,7 +69,7 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
 
     # Sample molecules
     print(f"Sampling {num} molecules:")
-    novels, probs_abs = temperature_sampling(egnn=gnn, lstm=rnn, temp=temp, smiles=smiles, num_mols=num, maxlen=maxlen)
+    novels, probs_abs = temperature_sampling(gnn=gnn, rnn=rnn, temp=temp, smiles=smiles, num_mols=num, maxlen=maxlen)
 
     # Save predictions
     df = pd.DataFrame({"SMILES": novels, "log-likelihoodog": probs_abs})
@@ -80,9 +78,9 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     df_sorted.to_csv("output/sampled.csv", index=False)
 
 
-def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
-    egnn.eval()
-    lstm.eval()
+def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
+    gnn.eval()
+    rnn.eval()
     softmax = nn.Softmax(dim=1)
     i2t, t2i = tokenizer()
 
@@ -92,17 +90,15 @@ def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
 
     smiles_list, score_list = [], []
     for _ in range(num_mols):  # trange(
-        # initialize LSTM layers with hidden state and others with 0
-        h = egnn(g.atoms, g.edge_index, g.bonds, g.batch)
-        print(h.shape)
-        hiddens = tuple([h] + [torch.zeros(h.shape).to(h.device) for _ in range(lstm.n_layers - 1)])
+        # initialize RNN layers with hidden state and others with 0
+        feats = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
+        hn = torch.zeros((rnn.n_layers, feats.size(1), rnn.hidden_dim)).to(DEVICE)
         score = 0
-        stop = False
+        step, stop = 0, False
         with torch.no_grad():
             pred_smls_list = []
-            pred_smls = torch.from_numpy(np.asarray([t2i["^"]])).to(DEVICE).unsqueeze(0)
             while not stop:
-                pred, hiddens = lstm(pred_smls, hiddens)
+                pred, hn = rnn(feats, hn, step=step)
 
                 # calculate propabilities
                 prob = softmax(pred)
@@ -114,13 +110,15 @@ def temperature_sampling(egnn, lstm, temp, smiles, num_mols, maxlen):
                 pred = np.random.multinomial(1, pred, size=1)
                 pred = np.argmax(pred)
                 pred_smls_list.append(pred)
-                pred_smls = torch.LongTensor([[pred]]).to(DEVICE)
+                feats = torch.LongTensor([[pred]]).to(DEVICE)
 
                 # calculate score (the higher the %, the smaller the log-likelihood)
                 score += +(-np.log(prob[pred]))
 
                 if i2t[pred] == "$" or len(pred_smls_list) > maxlen:  # stop once the end token is reached
                     stop = True
+                step += 1
+
         s = "".join(i2t[i] for i in pred_smls_list)
         print(s)
         valid, smiles_j = is_valid_mol(s, True)

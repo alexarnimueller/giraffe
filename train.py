@@ -124,7 +124,7 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
         l_s, l_p = train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, i2t)
         scheduler.step()
         loop_time = time.time() - time_start
-        print("Epoch:", epoch, "Loss SMILES:", l_s, "Loss Props.:", l_p, "Time:", loop_time)
+        print(f"Epoch: {epoch}  Loss SMILES: {l_s:.3f}  Loss Props.: {l_p:.3f}  Time: {loop_time:.3f}")
 
         # save loss and models
         if epoch % save_after == 0:
@@ -159,38 +159,25 @@ def train_one_epoch(
         # get GNN embedding as input for RNN and FFNN
         h_g = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
 
-        # get RNN predictions (teacher enforced)
-        # preds = rnn(h_g, trg)
-
-        # --------------------
-        loss_mol = torch.zeros(1).to(DEVICE)
-
         # start with initial embedding from graph
         h0 = torch.zeros((rnn.n_layers, h_g.size(1), rnn.hidden_dim)).to(DEVICE)
         nxt, hn = rnn(h_g, h0, step=0)  # step 0 = no token embedding (use GNN output)
         loss_forward = criterion1(nxt, trg[0, :])
-        loss_mol = torch.add(loss_mol, loss_forward)
+        loss_mol = loss_forward
 
         # now get it for every token using Teacher Forcing
         for j in range(trg.size(0) - 1):
             nxt, hn = rnn(trg[j, :].unsqueeze(0), hn, step=j + 1)
             loss_forward = criterion1(nxt, trg[j + 1, :])
             loss_mol = torch.add(loss_mol, loss_forward)
-        loss_per_token = loss_mol.cpu().detach().numpy()[0] / (j + 1)
-
-        # token = torch.argmax(preds, dim=2).flatten().cpu().detach().numpy()
-        # print("".join([i2t[i] for i in token]).strip())
-        # loss_mol = criterion1(preds.reshape(preds.size(1), preds.size(2), preds.size(0)),
-        #                       trg.reshape(trg.size(1), trg.size(0)))
-        # loss_per_token = torch.divide(loss_mol, trg.size(0))
-        # print(loss_per_token)
+        loss_per_token = loss_mol.cpu().detach().numpy() / (j + 1)
 
         # Properties loss
         pred_props = mlp(h_g.mean(0))
         loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
 
-        # Combine losses
-        loss = loss_mol + loss_props
+        # Combine losses (weight based on expected differences)
+        loss = loss_mol + loss_props * 0.2
         loss.backward()
         optimizer.step()
         total_props += loss_props.cpu().detach().numpy()

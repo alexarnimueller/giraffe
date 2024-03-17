@@ -61,32 +61,6 @@ class RNN(nn.Module):
         out = self.fcn(out[-1]).clamp(min=1e-8)  # clamp to prevent NaN in loss due to softmax
         return out, hn
 
-    def forward2(self, features, smiles):
-        # embed the full smiles
-        smls_embed = self.embed(smiles)
-
-        # init the hidden and cell states to zeros
-        h0 = torch.zeros((self.n_layers, features.size(1), self.hidden_dim)).to(features.device)
-
-        # define an output tensor placeholder
-        outputs = torch.empty((smiles.size(0), features.size(1), self.size_vocab)).to(features.device)
-
-        # first step with embedding as input
-        out, hn = self.gru(features, h0)
-        outputs[0, :, :] = self.fcn(out[-1])
-
-        # for the 2nd+ time step, use teacher forcer
-        for t in range(1, smiles.size(0)):
-            out, hn = self.gru(smls_embed[t, :, :].unsqueeze(0), hn)
-            outputs[t, :, :] = self.fcn(out[-1])
-
-        return outputs.clamp(min=1e-8)  # clamp outputs to potentially get rid of softmax nan loss
-
-# >>> rnn = nn.GRU(10, 20, 2)  # vocab, hidden, layers
-# >>> input = torch.randn(5, 3, 10)  # seq len, batch, vocab
-# >>> h0 = torch.randn(2, 3, 20)  # layers, batch, hidden
-# >>> output, hn = rnn(input, h0)  # layers, batch, hidden
-
 
 class GATEConv(MessagePassing):
     def __init__(
