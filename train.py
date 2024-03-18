@@ -112,8 +112,8 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     # Define optimizer and criterion
     # opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
     # optimizer = torch.optim.Adam(opt_params, lr=lr)
-    enc_optimizer = torch.optim.Adam(gnn.parameters(), lr=lr)
-    dec_optimizer = torch.optim.Adam(list(rnn.parameters()) + list(mlp.parameters()), lr=lr)
+    enc_optimizer = torch.optim.Adam(list(gnn.parameters()) + list(mlp.parameters()), lr=lr)
+    dec_optimizer = torch.optim.Adam(rnn.parameters(), lr=lr)
     criterion1 = nn.CrossEntropyLoss(ignore_index=t2i[" "], reduction="sum")
     criterion2 = nn.MSELoss()
     enc_scheduler = torch.optim.lr_scheduler.StepLR(enc_optimizer, step_size=lr_step, gamma=lr_factor)
