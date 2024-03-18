@@ -48,13 +48,13 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     # Define models
     rnn = RNN(
         size_vocab=conf["alphabet"],
-        hidden_dim=conf["dim_hidden"],
+        hidden_dim=conf["dim_gnn"],
         layers=conf["n_layers"],
         dropout=conf["dropout"],
     )
     gnn = AttentiveFP(
         in_channels=dim_atom,
-        hidden_channels=conf["dim_hidden"],
+        hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
         dropout=conf["dropout"],
         edge_dim=dim_bond,
@@ -82,7 +82,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
     gnn.eval()
     rnn.eval()
     softmax = nn.Softmax(dim=1)
-    i2t, t2i = tokenizer()
+    i2t, _ = tokenizer()
 
     mol = OneMol(smiles, maxlen)
     loader = DataLoader(mol, batch_size=1)
@@ -90,7 +90,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
 
     smiles_list, score_list = [], []
     for _ in range(num_mols):  # trange(
-        # initialize RNN layers with hidden state and others with 0
+        # initialize RNN layers with GNN features and hidden with 0
         feats = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
         hn = torch.zeros((rnn.n_layers, feats.size(1), rnn.hidden_dim)).to(DEVICE)
         score = 0
@@ -101,9 +101,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
                 pred, hn = rnn(feats, hn, step=step)
 
                 # calculate propabilities
-                prob = softmax(pred)
-                prob = np.squeeze(prob.cpu().detach().numpy())
-                prob = prob.astype("float64")
+                prob = softmax(pred).cpu().detach().numpy()[0].astype("float64")
 
                 # transform with temperature and get most probable token
                 pred = np.exp(prob / temp) / np.sum(np.exp(prob / temp))

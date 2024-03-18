@@ -167,7 +167,6 @@ class AttentiveFP(torch.nn.Module):
         self.mol_gru = GRUCell(hidden_channels, hidden_channels)
 
         self.lin2 = Linear(hidden_channels, out_channels)
-
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -180,7 +179,7 @@ class AttentiveFP(torch.nn.Module):
 
     def forward(self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor) -> Tensor:
         """"""
-        # Atom Embedding:
+        # Atom Embedding
         x = F.leaky_relu_(self.lin1(x))
 
         h = F.elu_(self.gate_conv(x, edge_index, edge_attr))
@@ -193,7 +192,7 @@ class AttentiveFP(torch.nn.Module):
             h = F.dropout(h, p=self.dropout, training=self.training)
             x = gru(h, x).relu()
 
-        # Molecule Embedding:
+        # Molecule Embedding
         row = torch.arange(batch.size(0), device=batch.device)
         edge_index = torch.stack([row, batch], dim=0)
 
@@ -203,18 +202,6 @@ class AttentiveFP(torch.nn.Module):
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
-        # Predictor:
+        # Predictor
         out = F.dropout(out, p=self.dropout, training=self.training)
         return self.lin2(out)
-
-    def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}("
-            f"in_channels={self.in_channels}, "
-            f"hidden_channels={self.hidden_channels}, "
-            f"out_channels={self.out_channels}, "
-            f"edge_dim={self.edge_dim}, "
-            f"num_layers={self.num_layers}, "
-            f"num_timesteps={self.num_timesteps}"
-            f")"
-        )
