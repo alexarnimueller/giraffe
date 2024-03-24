@@ -14,7 +14,7 @@ from rdkit.rdBase import DisableLog
 from torch_geometric.loader import DataLoader
 
 from dataset import OneMol, tokenizer
-from model import RNN, AttentiveFP
+from model import LSTM, AttentiveFP
 from utils import get_input_dims, is_valid_mol
 
 for level in RDLogger._levels:
@@ -28,8 +28,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-e", "--epoch", help="Epoch of models to load.")
 @click.option("-s", "--smiles", help="Reference SMILES to use as seed for sampling.")
 @click.option("-n", "--num", default=100, help="How many molecules to sample.")
-@click.option("-t", "--temp", default=0.6, help="Temperature to use for sampling.")
-@click.option("-m", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
+@click.option("-t", "--temp", default=0.5, help="Temperature to use for multinomial sampling.")
+@click.option("-l", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
 def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     assert Chem.MolFromSmiles(smiles), "invalid SMILES string!"
     dim_atom, dim_bond = get_input_dims()
@@ -46,8 +46,9 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
                 conf[k] = v
 
     # Define models
-    rnn = RNN(
-        size_vocab=conf["alphabet"],
+    rnn = LSTM(
+        input_dim=conf["alphabet"],
+        embedding_dim=conf["dim_embed"],
         hidden_dim=conf["dim_gnn"],
         layers=conf["n_layers"],
         dropout=conf["dropout"],
@@ -82,7 +83,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
     gnn.eval()
     rnn.eval()
     softmax = nn.Softmax(dim=1)
-    i2t, _ = tokenizer()
+    i2t, t2i = tokenizer()
 
     mol = OneMol(smiles, maxlen)
     loader = DataLoader(mol, batch_size=1)
@@ -90,25 +91,24 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
 
     smiles_list, score_list = [], []
     for _ in range(num_mols):  # trange(
-        # initialize RNN layers with GNN features and hidden with 0
-        feats = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
-        hn = torch.zeros((rnn.n_layers, feats.size(1), rnn.hidden_dim)).to(DEVICE)
+        # initialize RNN hiddens with GNN features and cell states with 0
         score = 0
         step, stop = 0, False
         with torch.no_grad():
+            hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
+            hn = torch.cat([hn] * rnn.n_layers, dim=0)
+            cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
+            nxt = torch.tensor([[t2i["^"]]]).to(DEVICE)  # start token
             pred_smls_list = []
             while not stop:
-                pred, hn = rnn(feats, hn, step=step)
-
-                # calculate propabilities
-                prob = softmax(pred).cpu().detach().numpy()[0].astype("float64")
+                # get next prediction and calculate propabilities
+                pred, (hn, cn) = rnn(nxt, (hn, cn))
+                prob = softmax(pred.squeeze(0)).cpu().detach().numpy()[0].astype("float64")
 
                 # transform with temperature and get most probable token
-                pred = np.exp(prob / temp) / np.sum(np.exp(prob / temp))
-                pred = np.random.multinomial(1, pred, size=1)
-                pred = np.argmax(pred)
+                pred = prob_to_token_with_temp(prob, temp=temp)
                 pred_smls_list.append(pred)
-                feats = torch.LongTensor([[pred]]).to(DEVICE)
+                nxt = torch.LongTensor([[pred]]).to(DEVICE)
 
                 # calculate score (the higher the %, the smaller the log-likelihood)
                 score += +(-np.log(prob[pred]))
@@ -118,11 +118,11 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
                 step += 1
 
         s = "".join(i2t[i] for i in pred_smls_list)
-        print(s)
+        print(s.replace("^", "").replace("$", "").replace(" ", ""), f"-- Score: {score / len(s):.3f}%")
         valid, smiles_j = is_valid_mol(s, True)
         if valid:
             smiles_list.append(smiles_j)
-            score_list.append(score)
+            score_list.append(score / len(s))
 
     novels, inchiks, probs_abs = [], [], []
     for idx, smls in enumerate(smiles_list):
@@ -133,8 +133,12 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
             probs_abs.append(score_list[idx])
 
     print(f"Number of valid, unique and novel molecules: {len(novels)}")
-
     return novels, probs_abs
+
+
+def prob_to_token_with_temp(prob, temp):
+    pred = np.exp(prob / (0.1 * temp)) / np.sum(np.exp(prob / (0.1 * temp)))
+    return np.argmax(np.random.multinomial(1, pred, size=1))
 
 
 if __name__ == "__main__":

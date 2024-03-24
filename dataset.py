@@ -24,8 +24,8 @@ class OneMol(Dataset):
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = self.data.iloc[idx]["SMILES"] if len(smils) > self.max_len - 2 else smils
-        smils_pad = np.full(self.max_len + 1, self.t2i[" "], dtype="uint8")
-        smils_pad[: len(smils) + 1] = [self.t2i[c] for c in smils] + [self.t2i["$"]]
+        smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
+        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
         return Data(
             atoms=torch.FloatTensor(atom_feats),
@@ -46,26 +46,30 @@ class OneMol(Dataset):
 
 
 class AttFPDataset(Dataset):
-    def __init__(self, filename, delimiter="\t", smls_col="SMILES"):
+    def __init__(self, filename, delimiter="\t", smls_col="SMILES", random=False):
         super(AttFPDataset, self).__init__()
         # tokenizer
         self.i2t, self.t2i = tokenizer()
+        self.random = random
         # Load smiles dataset
-        print("Reading SMILES dataset...")
+        print("\nReading SMILES dataset...")
         self.data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
         self.max_len = self.data["SMILES"].apply(lambda x: len(x)).max()
+        print(f"Loaded {len(self.data)} SMILES")
         print("Max Length: ", self.max_len)
 
     def __getitem__(self, idx):
+        if self.random:  # randomly sample any molecule
+            idx = np.random.randint(len(self.data))
         mol = MolFromSmiles(self.data.iloc[idx]["SMILES"])
         props = rdkit_descirptors([mol]).values[0]
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
-        if len(smils) + 1 > self.max_len:
+        if len(smils) > self.max_len:
             smils = self.data.iloc[idx]["SMILES"]
-        smils_pad = np.full(self.max_len + 1, self.t2i[" "], dtype="uint8")
-        smils_pad[: len(smils) + 1] = [self.t2i[c] for c in smils] + [self.t2i["$"]]
+        smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
+        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
         return Data(
             atoms=torch.FloatTensor(atom_feats),
@@ -91,7 +95,7 @@ def attentive_fp_features(mol):
     # node and edge features
     atom_feats = np.array([atom_features(a) for a in mol.GetAtoms()])
     bond_feats = np.array([bond_features(a) for a in mol.GetBonds()] * 2)
-    # edge features (in the form that pyg Data edge_index needs it)
+    # edge indices (in the form that pyg Data edge_index needs it)
     edge_indices = []
     for bond in mol.GetBonds():
         edge_indices += [[bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()]]
@@ -146,7 +150,8 @@ def tokenizer():
         41: "8",
         42: "9",
         43: "+",
-        44: "$",
+        44: "^",
+        45: "$",
     }
     token_indices = {v: k for k, v in indices_token.items()}
     return indices_token, token_indices

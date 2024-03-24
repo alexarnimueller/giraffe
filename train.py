@@ -9,8 +9,7 @@ import click
 import numpy as np
 import torch
 import torch.nn as nn
-from rdkit import RDLogger  # Chem
-from rdkit import Chem
+from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
@@ -18,11 +17,9 @@ from tqdm.auto import tqdm
 
 from dataset import AttFPDataset, tokenizer
 from descriptors import rdkit_descirptors
-from model import FFNN, RNN, AttentiveFP
+from model import FFNN, LSTM, AttentiveFP
 from sampling import temperature_sampling
 from utils import get_input_dims
-
-# from descriptors import rdkit_descirptors
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -32,44 +29,54 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 @click.command()
 @click.argument("filename")
+@click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-e", "--epochs", default=50, help="Nr. of epochs to train.")
+@click.option("-e", "--epochs", default=100, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.2, help="Dropout fraction.")
-@click.option("-b", "--batch_size", default=64, help="Number of molecules per batch.")
+@click.option("-b", "--batch_size", default=128, help="Number of molecules per batch.")
+@click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
+@click.option("-v", "--val", default=0.1, help="Fraction of the data to use for validation.")
 @click.option("-l", "--lr", default=0.0005, help="Learning rate.")
-@click.option("-f", "--lr_factor", default=0.9, help="Factor for learning rate decay.")
-@click.option("-s", "--lr_step", default=3, help="Step size for learning rate decay.")
-@click.option("-a", "--save_after", default=2, help="Epoch steps to save model.")
-def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_factor, lr_step, save_after):
+@click.option("-f", "--lr_factor", default=0.8, help="Factor for learning rate decay.")
+@click.option("-s", "--lr_step", default=5, help="Step size for learning rate decay.")
+@click.option("-a", "--after", default=2, help="Epoch steps to save model.")
+def main(
+    filename, run_name, delimiter, smls_col, epochs, dropout, batch_size, random, val, lr, lr_factor, lr_step, after
+):
+    if run_name is None:  # take filename as run name if not specified
+        run_name = os.path.basename(filename).split(".")[0]
+
     # Write parameters to config file and define variables
     ini = configparser.ConfigParser()
     config = {
         "filename": filename,
+        "run_name": run_name,
         "epochs": epochs,
         "dropout": dropout,
         "batch_size": batch_size,
         "lr": lr,
         "lr_factor": lr_factor,
         "lr_step": lr_step,
-        "save_after": save_after,
+        "save_after": after,
     }
-    config["dim_mlp"] = dim_mlp = 256
     config["dim_gnn"] = dim_gnn = 512
     config["n_layers"] = n_layers = 2
     config["n_kernels"] = n_kernels = 3
-    config["dim_rnn"] = dim_rnn = 768
+    config["dim_embed"] = dim_embed = 128
+    config["dim_rnn"] = dim_rnn = 512
+    config["dim_mlp"] = dim_mlp = 768
     config["n_props"] = n_props = rdkit_descirptors([Chem.MolFromSmiles("O1CCNCC1")]).shape[1]
-    i2t, t2i = tokenizer()
+    _, t2i = tokenizer()
     config["alphabet"] = alphabet = len(t2i)
     dim_atom, dim_bond = get_input_dims()
 
     # Define paths
-    path_model = f"models/{os.path.basename(filename)[:-4]}/"
-    path_loss = f"logs/{os.path.basename(filename)[:-4]}/"
+    path_model = f"models/{run_name}/"
+    path_loss = f"logs/{run_name}/"
     os.makedirs(path_model, exist_ok=True)
     os.makedirs(path_loss, exist_ok=True)
-    print("Paths (model, loss): ", path_model, path_loss)
+    print("\nPaths (model, loss): ", path_model, path_loss)
 
     # store config file for later sampling
     with open(f"{path_model}config.ini", "w") as configfile:
@@ -86,8 +93,9 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
         num_layers=n_layers,
         num_timesteps=n_kernels,
     )
-    rnn = RNN(
-        size_vocab=alphabet,
+    rnn = LSTM(
+        input_dim=alphabet,
+        embedding_dim=dim_embed,
         hidden_dim=dim_rnn,
         layers=n_layers,
         dropout=dropout,
@@ -104,104 +112,140 @@ def main(filename, delimiter, smls_col, epochs, dropout, batch_size, lr, lr_fact
     rnn_params = sum([np.prod(e.size()) for e in rnn_parameters])
     mlp_parameters = filter(lambda p: p.requires_grad, mlp.parameters())
     mlp_params = sum([np.prod(e.size()) for e in mlp_parameters])
-    print(f"Num GNN parameters:   {gnn_params / 1e6:.2f}M")
+    print(f"\nNum GNN parameters:   {gnn_params / 1e6:.2f}M")
     print(f"Num RNN parameters:   {rnn_params / 1e6:.2f}M")
     print(f"Num MLP parameters:   {mlp_params / 1e6:.2f}M")
-    print(f"  Total parameters:   {(rnn_params + gnn_params) / 1e6:.2f}M")
+    print(f"  Total parameters:   {(mlp_params + rnn_params + gnn_params) / 1e6:.2f}M")
 
-    # Define optimizer and criterion
-    # opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
-    # optimizer = torch.optim.Adam(opt_params, lr=lr)
-    enc_optimizer = torch.optim.Adam(list(gnn.parameters()) + list(mlp.parameters()), lr=lr)
-    dec_optimizer = torch.optim.Adam(rnn.parameters(), lr=lr)
-    criterion1 = nn.CrossEntropyLoss(ignore_index=t2i[" "], reduction="sum")
+    # Define optimizer and loss criteria
+    opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
+    optimizer = torch.optim.Adam(opt_params, lr=lr)
+    criterion1 = nn.CrossEntropyLoss(reduction="mean")
     criterion2 = nn.MSELoss()
-    enc_scheduler = torch.optim.lr_scheduler.StepLR(enc_optimizer, step_size=lr_step, gamma=lr_factor)
-    dec_scheduler = torch.optim.lr_scheduler.StepLR(dec_optimizer, step_size=lr_step, gamma=lr_factor)
-    train_dataset = AttFPDataset(filename=filename, delimiter=delimiter, smls_col=smls_col)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_factor)
+    dataset = AttFPDataset(filename=filename, delimiter=delimiter, smls_col=smls_col, random=random)
+    train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
+    print(f"Using {len(train_set)} molecules for training and {len(val_set)} for validation.")
+
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
+    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
     writer = SummaryWriter(path_loss)
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
         time_start = time.time()
-        l_s, l_p = train_one_epoch(gnn, rnn, mlp, enc_optimizer, dec_optimizer, criterion1, criterion2, train_loader,
-                                   writer, epoch)
-        enc_scheduler.step()
-        dec_scheduler.step()
-        loop_time = time.time() - time_start
-        print(f"Epoch: {epoch}  Loss SMILES: {l_s:.3f}  Loss Props.: {l_p:.3f}  Time: {loop_time:.3f}")
-        nvl, _ = temperature_sampling(gnn, rnn, 0.5, "COC(=O)[C@H](c1ccccc1Cl)N2CCc3c(ccs3)C2", 10, 100)
+        l_s, l_p = train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i)
+        l_vs, l_vp = validate_one_epoch(
+            gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, (epoch + 1) * len(train_loader), t2i
+        )
+        scheduler.step()
+        dur = time.time() - time_start
+        print(
+            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, "
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+        )
+
+        nvl, _ = temperature_sampling(gnn, rnn, 0.5, val_set.dataset.data.sample(1)["SMILES"].values[0], 10, 96)
         print(f"\t{len(nvl)} novel and valid molecules sampled.\n")
 
         # save loss and models
-        if epoch % save_after == 0:
-            torch.save(gnn.state_dict(), f"{path_model}egnn_{epoch}.pt")
+        if epoch % after == 0:
+            torch.save(gnn.state_dict(), f"{path_model}atfp_{epoch}.pt")
             torch.save(rnn.state_dict(), f"{path_model}lstm_{epoch}.pt")
+            torch.save(rnn.state_dict(), f"{path_model}ffnn_{epoch}.pt")
 
 
-def train_one_epoch(
-    gnn,
-    rnn,
-    mlp,
-    optimizer1,
-    optimizer2,
-    criterion1,
-    criterion2,
-    train_loader,
-    writer,
-    epoch
-):
+def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i):
     gnn.train()
     rnn.train()
     mlp.train()
-    total_token, total_props, step = 0, 0, 0
-    for g in tqdm(train_loader):
-        optimizer1.zero_grad()
-        optimizer2.zero_grad()
+    steps = len(train_loader)
+    total_smls, total_props, step = 0, 0, 0
+    for g in tqdm(train_loader, desc="Training"):
+        optimizer.zero_grad()
 
         # graph and target smiles
         g = g.to(DEVICE)
         trg = g.trg_smi
         trg = torch.transpose(trg, 0, 1)
-        # print("\n", "".join([i2t[i] for i in trg.flatten().cpu().detach().numpy()]).strip())
-        # get GNN embedding as input for RNN and FFNN
-        h_g = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
 
-        # start with initial embedding from graph and zeros as hidden
-        h0 = torch.zeros((rnn.n_layers, h_g.size(1), rnn.hidden_dim)).to(DEVICE)
-        nxt, hn = rnn(h_g, h0, step=0)  # step 0 = no token embedding (use GNN output)
-        loss_mol = criterion1(nxt, trg[0, :])
+        # get GNN embedding as input for RNN (h0) and FFNN
+        hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
+        hn = torch.cat([hn] * rnn.n_layers, dim=0)
 
-        # now get it for every token using Teacher Forcing
-        for j in range(trg.size(0) - 1):
-            nxt, hn = rnn(trg[j, :].unsqueeze(0), hn, step=j + 1)
-            loss_forward = criterion1(nxt, trg[j + 1, :])
-            loss_mol = torch.add(loss_mol, loss_forward)
-        loss_per_token = loss_mol.cpu().detach().numpy() / (j + 1)
+        # start with initial embedding from graph and zeros as cell state
+        cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
+
+        # now get learn tokens using Teacher Forcing
+        loss_mol = torch.zeros(1).to(DEVICE)
+        finish = (trg == t2i["$"]).nonzero()[-1, 0]
+        for j in range(finish - 1):  # only loop until last end-token to prevent nan loss
+            nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
+            loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
+            if torch.isnan(loss_fwd):  # if ignored tokens only, loss will be nan
+                loss_fwd = torch.zeros(1).to(DEVICE)
+            loss_mol = torch.add(loss_mol, loss_fwd)
+        loss_per_token = loss_mol.cpu().detach().numpy()[0] / j
 
         # Properties loss
-        pred_props = mlp(h_g[-1])
+        pred_props = mlp(hn[0])
         loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
 
-        # Combine losses (weight based on expected differences)
-        loss = loss_mol  # + loss_props * 0.1
-        loss.backward()
-        optimizer1.step()
-        optimizer2.step()
+        # combine losses, apply weight to have approx. same values
+        loss = loss_mol + torch.multiply(loss_props, 0.1)
+        loss.backward(retain_graph=True)
+        optimizer.step()
+
+        total_smls += loss_per_token
         total_props += loss_props.cpu().detach().numpy()
-        total_token += loss_per_token
 
         # write tensorboard summary
-        if step > 0:
-            writer.add_scalar("loss_train_rnn", total_token / step, (epoch - 1) * len(train_loader) + step)
-            writer.add_scalar("loss_train_mlp", total_props / step, epoch * len(train_loader) + step)
-            if step % 500 == 0:
-                print(f"Step: {step}/{len(train_loader)}, Loss SMILES: {total_token / step:.3f}, "
-                      + f"Loss Props.: {total_props / step:.2f}")
         step += 1
+        writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
+        writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
+        if step % 500 == 0:
+            print(f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}")
 
-    return total_token / step, total_props / step
+    return (total_smls / step, total_props / step)
+
+
+def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i):
+    gnn.eval()
+    rnn.eval()
+    mlp.eval()
+    steps = len(valid_loader)
+    loss_smls, loss_props = 0, 0
+    with torch.no_grad():
+        for g in tqdm(valid_loader, desc="Validation"):
+            # graph and target smiles
+            g = g.to(DEVICE)
+            trg = g.trg_smi
+            trg = torch.transpose(trg, 0, 1)
+
+            # build hidden and cell value inputs
+            hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
+            hn = torch.cat([hn] * rnn.n_layers, dim=0)
+            cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
+
+            # SMILES
+            val_loss = torch.zeros(1).to(DEVICE)
+            finish = (trg == t2i["$"]).nonzero()[-1, 0]
+            for j in range(finish - 1):  # only loop until last end-token to prevent nan loss
+                nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
+                loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
+                if torch.isnan(loss_fwd):  # if ignored tokens only, loss will be nan
+                    loss_fwd = torch.zeros(1).to(DEVICE)
+                val_loss = torch.add(val_loss, loss_fwd)
+            loss_smls += val_loss.cpu().detach().numpy()[0] / j
+
+            # properties
+            pred_props = mlp(hn[0])
+            loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
+
+    # write tensorboard summary for this epoch and return validation loss
+    writer.add_scalar("loss_val_smiles", loss_smls / steps, step)
+    writer.add_scalar("loss_val_props", loss_props / steps, step)
+    return (loss_smls / steps, loss_props / steps)
 
 
 if __name__ == "__main__":
