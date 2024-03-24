@@ -39,8 +39,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-v", "--val", default=0.1, help="Fraction of the data to use for validation.")
 @click.option("-l", "--lr", default=0.0005, help="Learning rate.")
 @click.option("-f", "--lr_factor", default=0.8, help="Factor for learning rate decay.")
-@click.option("-s", "--lr_step", default=5, help="Step size for learning rate decay.")
-@click.option("-a", "--after", default=2, help="Epoch steps to save model.")
+@click.option("-s", "--lr_step", default=10, help="Step size for learning rate decay.")
+@click.option("-a", "--after", default=5, help="Epoch steps to save model.")
 def main(
     filename, run_name, delimiter, smls_col, epochs, dropout, batch_size, random, val, lr, lr_factor, lr_step, after
 ):
@@ -192,7 +192,7 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
         loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
 
         # combine losses, apply weight to have approx. same values
-        loss = loss_mol + torch.multiply(loss_props, 0.1)
+        loss = loss_mol + torch.multiply(loss_props, 0.01)
         loss.backward(retain_graph=True)
         optimizer.step()
 
