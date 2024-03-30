@@ -272,7 +272,7 @@ def atom_features(atom, explicit_H=True, use_chirality=True):
             atom.GetSymbol(),
             ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B", "Si", "other"],
         )
-        + one_of_k_encoding(atom.GetDegree(), [0, 1, 2, 3, 4, 5, 6])
+        + one_of_k_encoding_unk(atom.GetDegree(), [0, 1, 2, 3, 4, 5, 6, 9])
         + [atom.GetFormalCharge(), atom.GetNumRadicalElectrons()]
         + one_of_k_encoding_unk(
             atom.GetHybridization(),
@@ -300,12 +300,6 @@ def atom_features(atom, explicit_H=True, use_chirality=True):
         except Exception:
             results = results + [False, False] + [atom.HasProp("_ChiralityPossible")]
     return np.array(results, dtype=int)
-
-
-def one_of_k_encoding(x, allowable_set):
-    if x not in allowable_set:
-        raise Exception("input {0} not in allowable set{1}:".format(x, allowable_set))
-    return [x == s for s in allowable_set]
 
 
 def one_of_k_encoding_unk(x, allowable_set):

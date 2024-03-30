@@ -26,9 +26,8 @@ class FFNN(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        glorot(self.mlp[0].weight)
-        glorot(self.mlp[3].weight)
-        glorot(self.mlp[6].weight)
+        for layer in [self.mlp[0], self.mlp[3], self.mlp[6]]:
+            glorot(layer.weight)
 
     def forward(self, x):
         return self.mlp(x)
@@ -151,7 +150,6 @@ class AttentiveFP(torch.nn.Module):
         self.dropout = dropout
 
         self.lin1 = Linear(in_channels, hidden_channels)
-
         self.gate_conv = GATEConv(hidden_channels, hidden_channels, edge_dim, dropout)
         self.gru = GRUCell(hidden_channels, hidden_channels)
 
@@ -183,7 +181,6 @@ class AttentiveFP(torch.nn.Module):
     def forward(self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor) -> Tensor:
         # Atom Embedding
         x = F.leaky_relu_(self.lin1(x))
-
         h = F.elu_(self.gate_conv(x, edge_index, edge_attr))
         h = F.dropout(h, p=self.dropout, training=self.training)
         x = self.gru(h, x).relu_()
@@ -204,12 +201,4 @@ class AttentiveFP(torch.nn.Module):
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
-        # Predictor
         return self.lin2(out)
-
-
-# >>> rnn = nn.LSTM(10, 20, 2)
-# >>> input = torch.randn(5, 3, 10)  # torch.Size([5, 3, 10])
-# >>> h0 = torch.randn(2, 3, 20)  # torch.Size([2, 3, 20]
-# >>> c0 = torch.randn(2, 3, 20)  # torch.Size([2, 3, 20]
-# >>> output, (hn, cn) = rnn(input, (h0, c0))  # torch.Size([5, 3, 10]), torch.Size([2, 3, 20])

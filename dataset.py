@@ -4,11 +4,16 @@
 import numpy as np
 import pandas as pd
 import torch
+from rdkit import RDLogger
 from rdkit.Chem import AddHs, MolFromSmiles, MolToSmiles, RemoveHs
+from rdkit.rdBase import DisableLog
 from torch_geometric.data import Data, Dataset
 
 from descriptors import rdkit_descirptors
 from utils import atom_features, bond_features
+
+for level in RDLogger._levels:
+    DisableLog(level)
 
 
 class OneMol(Dataset):
@@ -22,8 +27,6 @@ class OneMol(Dataset):
         smils = self.smiles
         mol = MolFromSmiles(smils)
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
-
-        smils = self.data.iloc[idx]["SMILES"] if len(smils) > self.max_len - 2 else smils
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
         smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
@@ -46,28 +49,34 @@ class OneMol(Dataset):
 
 
 class AttFPDataset(Dataset):
-    def __init__(self, filename, delimiter="\t", smls_col="SMILES", random=False):
+    def __init__(self, filename, delimiter="\t", smls_col="SMILES", random=False, steps=128000):
         super(AttFPDataset, self).__init__()
         # tokenizer
         self.i2t, self.t2i = tokenizer()
         self.random = random
+
         # Load smiles dataset
         print("\nReading SMILES dataset...")
         self.data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
-        self.max_len = self.data["SMILES"].apply(lambda x: len(x)).max()
+
+        self.max_len = self.data.SMILES.apply(lambda x: len(x)).max()
+        self.data = self.data.values
         print(f"Loaded {len(self.data)} SMILES")
         print("Max Length: ", self.max_len)
+        # if random, set loops
+        if random:
+            self.loop = list(range(0, steps))
 
     def __getitem__(self, idx):
         if self.random:  # randomly sample any molecule
             idx = np.random.randint(len(self.data))
-        mol = MolFromSmiles(self.data.iloc[idx]["SMILES"])
+        mol = MolFromSmiles(self.data[idx, 0])
         props = rdkit_descirptors([mol]).values[0]
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
         if len(smils) > self.max_len:
-            smils = self.data.iloc[idx]["SMILES"]
+            smils = self.data[idx, 0]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
         smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
@@ -81,6 +90,8 @@ class AttFPDataset(Dataset):
         )
 
     def __len__(self):
+        if self.random:
+            return len(self.loop)
         return len(self.data)
 
     def len(self) -> int:

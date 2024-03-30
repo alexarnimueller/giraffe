@@ -63,7 +63,7 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
         num_timesteps=conf["n_kernels"],
     )
 
-    gnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"egnn_{epoch}.pt"), map_location=DEVICE))
+    gnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"atfp_{epoch}.pt"), map_location=DEVICE))
     rnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"lstm_{epoch}.pt"), map_location=DEVICE))
     gnn = gnn.to(DEVICE)
     rnn = rnn.to(DEVICE)
@@ -79,7 +79,7 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     df_sorted.to_csv("output/sampled.csv", index=False)
 
 
-def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
+def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False):
     gnn.eval()
     rnn.eval()
     softmax = nn.Softmax(dim=1)
@@ -89,8 +89,13 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
     loader = DataLoader(mol, batch_size=1)
     g = next(iter(loader)).to(DEVICE)
 
+    if verbose:
+        trange = range
+    else:
+        from tqdm import trange
+
     smiles_list, score_list = [], []
-    for _ in range(num_mols):  # trange(
+    for _ in trange(num_mols):
         # initialize RNN hiddens with GNN features and cell states with 0
         score = 0
         step, stop = 0, False
@@ -118,26 +123,30 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen):
                 step += 1
 
         s = "".join(i2t[i] for i in pred_smls_list)
-        print(s.replace("^", "").replace("$", "").replace(" ", ""), f"-- Score: {score / len(s):.3f}%")
+        if verbose:
+            print(s.replace("^", "").replace("$", "").replace(" ", ""), f"-- Score: {score / len(s):.3f}%")
         valid, smiles_j = is_valid_mol(s, True)
         if valid:
             smiles_list.append(smiles_j)
             score_list.append(score / len(s))
 
-    novels, inchiks, probs_abs = [], [], []
+    ik_ref = Chem.MolToInchiKey(Chem.MolFromSmiles(smiles))
+    unique, inchiks, probs_abs, novels = [], [], [], 0
     for idx, smls in enumerate(smiles_list):
         ik = Chem.MolToInchiKey(Chem.MolFromSmiles(smls))
+        if ik != ik_ref:
+            novels += 1
         if ik and ik not in inchiks:
-            novels.append(smls)
+            unique.append(smls)
             inchiks.append(ik)
             probs_abs.append(score_list[idx])
 
-    print(f"Number of valid, unique and novel molecules: {len(novels)}")
-    return novels, probs_abs
+    print(f"Sampled {len(smiles_list)} valid, {novels} novel and {len(inchiks)} unique molecules")
+    return unique, probs_abs
 
 
 def prob_to_token_with_temp(prob, temp):
-    pred = np.exp(prob / (0.1 * temp)) / np.sum(np.exp(prob / (0.1 * temp)))
+    pred = np.exp(prob / temp) / np.sum(np.exp(prob / temp))
     return np.argmax(np.random.multinomial(1, pred, size=1))
 
 

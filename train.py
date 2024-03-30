@@ -34,15 +34,31 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
 @click.option("-e", "--epochs", default=100, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.2, help="Dropout fraction.")
-@click.option("-b", "--batch_size", default=128, help="Number of molecules per batch.")
+@click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
-@click.option("-v", "--val", default=0.1, help="Fraction of the data to use for validation.")
-@click.option("-l", "--lr", default=0.0005, help="Learning rate.")
+@click.option("-es", "--epoch_steps", default=256000, help="If random, number of steps per epoch.")
+@click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
+@click.option("-l", "--lr", default=0.001, help="Learning rate.")
 @click.option("-f", "--lr_factor", default=0.8, help="Factor for learning rate decay.")
 @click.option("-s", "--lr_step", default=10, help="Step size for learning rate decay.")
 @click.option("-a", "--after", default=5, help="Epoch steps to save model.")
+@click.option("-p", "--n_proc", default=4, help="Number of CPU processes to use.")
 def main(
-    filename, run_name, delimiter, smls_col, epochs, dropout, batch_size, random, val, lr, lr_factor, lr_step, after
+    filename,
+    run_name,
+    delimiter,
+    smls_col,
+    epochs,
+    dropout,
+    batch_size,
+    random,
+    epoch_steps,
+    val,
+    lr,
+    lr_factor,
+    lr_step,
+    after,
+    n_proc,
 ):
     if run_name is None:  # take filename as run name if not specified
         run_name = os.path.basename(filename).split(".")[0]
@@ -55,6 +71,10 @@ def main(
         "epochs": epochs,
         "dropout": dropout,
         "batch_size": batch_size,
+        "random": random,
+        "n_proc": n_proc,
+        "epoch_steps": epoch_steps,
+        "frac_val": val,
         "lr": lr,
         "lr_factor": lr_factor,
         "lr_step": lr_step,
@@ -92,18 +112,15 @@ def main(
         edge_dim=dim_bond,
         num_layers=n_layers,
         num_timesteps=n_kernels,
-    )
+    ).to(DEVICE)
     rnn = LSTM(
         input_dim=alphabet,
         embedding_dim=dim_embed,
         hidden_dim=dim_rnn,
         layers=n_layers,
         dropout=dropout,
-    )
-    mlp = FFNN(input_dim=dim_rnn, hidden_dim=dim_mlp, output_dim=n_props)
-    gnn = gnn.to(DEVICE)
-    rnn = rnn.to(DEVICE)
-    mlp = mlp.to(DEVICE)
+    ).to(DEVICE)
+    mlp = FFNN(input_dim=dim_rnn, hidden_dim=dim_mlp, output_dim=n_props).to(DEVICE)
 
     # Calculate model parameters
     gnn_parameters = filter(lambda p: p.requires_grad, gnn.parameters())
@@ -112,10 +129,10 @@ def main(
     rnn_params = sum([np.prod(e.size()) for e in rnn_parameters])
     mlp_parameters = filter(lambda p: p.requires_grad, mlp.parameters())
     mlp_params = sum([np.prod(e.size()) for e in mlp_parameters])
-    print(f"\nNum GNN parameters:   {gnn_params / 1e6:.2f}M")
-    print(f"Num RNN parameters:   {rnn_params / 1e6:.2f}M")
-    print(f"Num MLP parameters:   {mlp_params / 1e6:.2f}M")
-    print(f"  Total parameters:   {(mlp_params + rnn_params + gnn_params) / 1e6:.2f}M")
+    print(f"\nNum GNN parameters:  {gnn_params / 1e6:.2f}M")
+    print(f"Num RNN parameters:  {rnn_params / 1e6:.2f}M")
+    print(f"Num MLP parameters:  {mlp_params / 1e6:.2f}M")
+    print(f"  Total parameters: {(mlp_params + rnn_params + gnn_params) / 1e6:.2f}M")
 
     # Define optimizer and loss criteria
     opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
@@ -123,13 +140,15 @@ def main(
     criterion1 = nn.CrossEntropyLoss(reduction="mean")
     criterion2 = nn.MSELoss()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_factor)
-    dataset = AttFPDataset(filename=filename, delimiter=delimiter, smls_col=smls_col, random=random)
+    dataset = AttFPDataset(filename=filename, delimiter=delimiter, smls_col=smls_col, random=random, steps=epoch_steps)
     train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
-    print(f"Using {len(train_set)} molecules for training and {len(val_set)} for validation.")
-
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
-    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
+    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
     writer = SummaryWriter(path_loss)
+    print(
+        f"Using {len(train_set)}{' random' if random else ''} molecules for training "
+        + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
+    )
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
@@ -145,8 +164,7 @@ def main(
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
-        nvl, _ = temperature_sampling(gnn, rnn, 0.5, val_set.dataset.data.sample(1)["SMILES"].values[0], 10, 96)
-        print(f"\t{len(nvl)} novel and valid molecules sampled.\n")
+        nvl, _ = temperature_sampling(gnn, rnn, 0.1, val_set.dataset.data.sample(1)["SMILES"].values[0], 10, 96, True)
 
         # save loss and models
         if epoch % after == 0:
@@ -192,7 +210,7 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
         loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
 
         # combine losses, apply weight to have approx. same values
-        loss = loss_mol + torch.multiply(loss_props, 0.01)
+        loss = loss_mol + torch.multiply(loss_props, 0.05)
         loss.backward(retain_graph=True)
         optimizer.step()
 
