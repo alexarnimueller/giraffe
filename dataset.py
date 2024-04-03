@@ -56,13 +56,17 @@ class AttFPDataset(Dataset):
         self.random = random
 
         # Load smiles dataset
-        print("\nReading SMILES dataset...")
-        self.data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
+        if isinstance(filename, str):
+            print("\nReading SMILES dataset...")
+            self.data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
+        elif isinstance(filename, list):
+            self.data = pd.DataFrame({"SMILES": filename})
 
         self.max_len = self.data.SMILES.apply(lambda x: len(x)).max()
-        self.data = self.data.values
-        print(f"Loaded {len(self.data)} SMILES")
-        print("Max Length: ", self.max_len)
+        self.data = self.data.values.flatten()
+        if isinstance(filename, str):
+            print(f"Loaded {len(self.data)} SMILES")
+            print("Max Length: ", self.max_len)
         # if random, set loops
         if random:
             self.loop = list(range(0, steps))
@@ -70,13 +74,13 @@ class AttFPDataset(Dataset):
     def __getitem__(self, idx):
         if self.random:  # randomly sample any molecule
             idx = np.random.randint(len(self.data))
-        mol = MolFromSmiles(self.data[idx, 0])
+        mol = MolFromSmiles(self.data[idx])
         props = rdkit_descirptors([mol]).values[0]
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
         if len(smils) > self.max_len:
-            smils = self.data[idx, 0]
+            smils = self.data[idx]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
         smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 

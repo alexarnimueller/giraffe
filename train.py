@@ -164,19 +164,19 @@ def main(
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
-        nvl, _ = temperature_sampling(gnn, rnn, 0.1, val_set.dataset.data.sample(1)["SMILES"].values[0], 10, 96, True)
+        nvl, _ = temperature_sampling(gnn, rnn, 0.1, np.random.choice(val_set.dataset.data, 1)[0], 10, 96, True)
 
         # save loss and models
         if epoch % after == 0:
             torch.save(gnn.state_dict(), f"{path_model}atfp_{epoch}.pt")
             torch.save(rnn.state_dict(), f"{path_model}lstm_{epoch}.pt")
-            torch.save(rnn.state_dict(), f"{path_model}ffnn_{epoch}.pt")
+            torch.save(mlp.state_dict(), f"{path_model}ffnn_{epoch}.pt")
 
 
 def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i):
-    gnn.train()
-    rnn.train()
-    mlp.train()
+    gnn.train(True)
+    rnn.train(True)
+    mlp.train(True)
     steps = len(train_loader)
     total_smls, total_props, step = 0, 0, 0
     for g in tqdm(train_loader, desc="Training"):
@@ -227,10 +227,11 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
     return (total_smls / step, total_props / step)
 
 
+@torch.no_grad
 def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i):
-    gnn.eval()
-    rnn.eval()
-    mlp.eval()
+    gnn.train(False)
+    rnn.train(False)
+    mlp.train(False)
     steps = len(valid_loader)
     loss_smls, loss_props = 0, 0
     with torch.no_grad():
@@ -251,14 +252,12 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             for j in range(finish - 1):  # only loop until last end-token to prevent nan loss
                 nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
                 loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
-                if torch.isnan(loss_fwd):  # if ignored tokens only, loss will be nan
-                    loss_fwd = torch.zeros(1).to(DEVICE)
                 val_loss = torch.add(val_loss, loss_fwd)
             loss_smls += val_loss.cpu().detach().numpy()[0] / j
 
             # properties
             pred_props = mlp(hn[0])
-            loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
+            loss_props += criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))).cpu().detach().numpy()
 
     # write tensorboard summary for this epoch and return validation loss
     writer.add_scalar("loss_val_smiles", loss_smls / steps, step)
