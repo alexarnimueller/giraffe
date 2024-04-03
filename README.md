@@ -4,7 +4,7 @@
 
 <img src="data/logo.png" alt="giraffe" width="200"/>
 
-This repository contains training, embedding and inference code for the "Graph Infused Representation Adapted For Future molecule Enhancements" (Giraffe) model used to create meaningful molecular representations for small molecules.
+This repository contains training, embedding and inference code for the "Graph Infused Representations Adapted For Future molecule Enhancements" (Giraffe) model used to create meaningful molecular representations for small molecules.
 
 ## Quick start
 ### Training
