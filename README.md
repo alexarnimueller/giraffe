@@ -35,6 +35,8 @@ Options:
   --help                      Show this message and exit.
 ```
 
+After training, a config file containing all the used options will be saved in the checkpoints folder. This file is used for later sampling and embedding tasks.
+
 ### Sampling
 To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `140` of the model `irci`), run the following:
 ```bash
