@@ -13,7 +13,7 @@ Training a new model on a file with SMILES strings can be achieved as follows:
 python train.py -n chembl data/chembl24_10uM_20-100_proc.txt
 ```
 To get all the options, call `python train.py --help`:
-```bash
+```
 Usage: train.py [OPTIONS] FILENAME
 
 Options:
@@ -50,7 +50,7 @@ python sampling.py -e 140 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C
 The sampled SMILES strings are stored in `output/sampled.csv` together with the negative log likelihood score.
 
 To get all available options, call `python sampling.py --help`:
-```bash
+```
 Usage: sampling.py [OPTIONS] CHECKPOINTFOLDER
 
 Options:
@@ -68,7 +68,7 @@ To embed SMILES strings using the pretrained GNN, proceed as follows:
 python embedding.py -f models/irci -e 140 data/1k.txt output/test/embeddings.csv
 ```
 To get all available options, call `python embedding.py --help`:
-```bash
+```
 Usage: embedding.py [OPTIONS] INPUT_FILE OUTPUT_FILE
 
 Options:
