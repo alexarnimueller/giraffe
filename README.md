@@ -2,7 +2,7 @@
 
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
 
-![Logo](data/logo.png)
+<img src="data/logo.png" alt="giraffe" width="200"/>
 
 This repository contains training, embedding and inference code for the "Graph Infused Representation Adapted For Future molecule Enhancements" (Giraffe) model used to create meaningful molecular representations for small molecules.
 
