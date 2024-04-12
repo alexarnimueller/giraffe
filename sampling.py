@@ -15,7 +15,7 @@ from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
 
 from dataset import AttFPDataset, OneMol, tokenizer
-from model import LSTM, AttentiveFP
+from model import LSTM, AttentiveFP2
 from utils import get_input_dims, is_valid_mol
 
 for level in RDLogger._levels:
@@ -32,11 +32,6 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-t", "--temp", default=0.5, help="Temperature to use for multinomial sampling.")
 @click.option("-l", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
 def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
-    if smiles is not None:
-        assert Chem.MolFromSmiles(smiles), "invalid SMILES string!"
-    else:
-        with open("data/100k.txt", "r") as f:  # randomly take num SMILES from the 100k training dataset
-            smiles = [s.strip() for s in heapq.nlargest(num, f, key=lambda x: random.random())]
     dim_atom, dim_bond = get_input_dims()
     ini = configparser.ConfigParser()
     ini.read(os.path.join(checkpointfolder, "config.ini"))
@@ -50,22 +45,29 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
             except ValueError:
                 conf[k] = v
 
+    if smiles is not None:
+        assert Chem.MolFromSmiles(smiles), "invalid SMILES string!"
+    else:
+        with open(conf["filename"], "r") as f:  # randomly take num SMILES from the training dataset
+            smiles = [s.strip() for s in heapq.nlargest(num, f, key=lambda x: random.random())]
+
     # Define models
     rnn = LSTM(
         input_dim=conf["alphabet"],
         embedding_dim=conf["dim_embed"],
         hidden_dim=conf["dim_gnn"],
-        layers=conf["n_layers"],
+        layers=conf["n_rnn_layers"],
         dropout=conf["dropout"],
     )
-    gnn = AttentiveFP(
+    gnn = AttentiveFP2(
         in_channels=dim_atom,
         hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
         dropout=conf["dropout"],
         edge_dim=dim_bond,
-        num_layers=conf["n_layers"],
+        num_layers=conf["n_gnn_layers"],
         num_timesteps=conf["n_kernels"],
+        num_outputs=conf["n_rnn_layers"],
     )
 
     gnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"atfp_{epoch}.pt"), map_location=DEVICE))
@@ -91,6 +93,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False
     i2t, t2i = tokenizer()
 
     if isinstance(smiles, str):
+        maxlen = max(maxlen, len(smiles))
         dataset = OneMol(smiles, maxlen)
     else:  # list
         dataset = AttFPDataset(smiles)
@@ -109,8 +112,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False
         score = 0
         step, stop = 0, False
         with torch.no_grad():
-            hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch).unsqueeze(0)
-            hn = torch.cat([hn] * rnn.n_layers, dim=0)
+            hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
             cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
             nxt = torch.tensor([[t2i["^"]]]).to(DEVICE)  # start token
             pred_smls_list = []
@@ -158,7 +160,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False
 
 
 def prob_to_token_with_temp(prob, temp):
-    pred = np.exp(prob / (temp * 0.1)) / np.sum(np.exp(prob / (temp * 0.1)))
+    pred = np.exp(prob / temp) / np.sum(np.exp(prob / temp))
     return np.argmax(np.random.multinomial(1, pred, size=1))
 
 

@@ -1,0 +1,842 @@
+{
+    "BalabanJ": [
+        0.0,
+        7.5
+    ],
+    "BertzCT": [
+        50.0,
+        2500.0
+    ],
+    "Chi0": [
+        0.0,
+        50.0
+    ],
+    "Chi0n": [
+        0.0,
+        40.0
+    ],
+    "Chi0v": [
+        0.0,
+        40.0
+    ],
+    "Chi1": [
+        0.0,
+        30.0
+    ],
+    "Chi1n": [
+        0.0,
+        25.0
+    ],
+    "Chi1v": [
+        0.0,
+        25.0
+    ],
+    "Chi2n": [
+        0.0,
+        20.0
+    ],
+    "Chi2v": [
+        0.0,
+        20.0
+    ],
+    "Chi3n": [
+        0.0,
+        20.0
+    ],
+    "Chi3v": [
+        0.0,
+        20.0
+    ],
+    "Chi4n": [
+        0.0,
+        20.0
+    ],
+    "Chi4v": [
+        0.0,
+        20.0
+    ],
+    "EState_VSA1": [
+        0.0,
+        150.0
+    ],
+    "EState_VSA10": [
+        0.0,
+        75.0
+    ],
+    "EState_VSA11": [
+        0.0,
+        10.0
+    ],
+    "EState_VSA2": [
+        0.0,
+        100.0
+    ],
+    "EState_VSA3": [
+        0.0,
+        100.0
+    ],
+    "EState_VSA4": [
+        0.0,
+        150.0
+    ],
+    "EState_VSA5": [
+        0.0,
+        150.0
+    ],
+    "EState_VSA6": [
+        0.0,
+        100.0
+    ],
+    "EState_VSA7": [
+        0.0,
+        150.0
+    ],
+    "EState_VSA8": [
+        0.0,
+        150.0
+    ],
+    "EState_VSA9": [
+        0.0,
+        75.0
+    ],
+    "ExactMolWt": [
+        50.0,
+        1000.0
+    ],
+    "FpDensityMorgan1": [
+        0.0,
+        2.0
+    ],
+    "FpDensityMorgan2": [
+        0.0,
+        3.0
+    ],
+    "FpDensityMorgan3": [
+        0.0,
+        4.0
+    ],
+    "FractionCSP3": [
+        0.0,
+        1.0
+    ],
+    "HallKierAlpha": [
+        -10.0,
+        1.0
+    ],
+    "HeavyAtomCount": [
+        4.0,
+        100.0
+    ],
+    "HeavyAtomMolWt": [
+        50.0,
+        1000.0
+    ],
+    "Ipc": [
+        0.0,
+        9e12
+    ],
+    "Kappa1": [
+        0.0,
+        50.0
+    ],
+    "Kappa2": [
+        0.0,
+        50.0
+    ],
+    "Kappa3": [
+        0.0,
+        25.0
+    ],
+    "LabuteASA": [
+        10.0,
+        400.0
+    ],
+    "MaxAbsEStateIndex": [
+        0.0,
+        20.0
+    ],
+    "MaxAbsPartialCharge": [
+        0.0,
+        1.0
+    ],
+    "MaxEStateIndex": [
+        0.0,
+        20.0
+    ],
+    "MaxPartialCharge": [
+        0.0,
+        1.0
+    ],
+    "MinAbsEStateIndex": [
+        0.0,
+        2.5
+    ],
+    "MinAbsPartialCharge": [
+        0.0,
+        1.0
+    ],
+    "MinEStateIndex": [
+        -7.5,
+        2.5
+    ],
+    "MinPartialCharge": [
+        -1.0,
+        0.0
+    ],
+    "MolLogP": [
+        -5.0,
+        12.0
+    ],
+    "MolMR": [
+        10.0,
+        300.0
+    ],
+    "MolWt": [
+        50.0,
+        1000.0
+    ],
+    "NHOHCount": [
+        0.0,
+        20.0
+    ],
+    "NOCount": [
+        0.0,
+        25.0
+    ],
+    "NumAliphaticCarbocycles": [
+        0.0,
+        8.0
+    ],
+    "NumAliphaticHeterocycles": [
+        0.0,
+        8.0
+    ],
+    "NumAliphaticRings": [
+        0.0,
+        10.0
+    ],
+    "NumAromaticCarbocycles": [
+        0.0,
+        8.0
+    ],
+    "NumAromaticHeterocycles": [
+        0.0,
+        8.0
+    ],
+    "NumAromaticRings": [
+        0.0,
+        10.0
+    ],
+    "NumHAcceptors": [
+        0.0,
+        20.0
+    ],
+    "NumHDonors": [
+        0.0,
+        20.0
+    ],
+    "NumHeteroatoms": [
+        0.0,
+        40.0
+    ],
+    "NumRadicalElectrons": [
+        0.0,
+        2.0
+    ],
+    "NumRotatableBonds": [
+        0.0,
+        40.0
+    ],
+    "NumSaturatedCarbocycles": [
+        0.0,
+        8.0
+    ],
+    "NumSaturatedHeterocycles": [
+        0.0,
+        8.0
+    ],
+    "NumSaturatedRings": [
+        0.0,
+        10.0
+    ],
+    "NumValenceElectrons": [
+        10.0,
+        400.0
+    ],
+    "PEOE_VSA1": [
+        0.0,
+        75.0
+    ],
+    "PEOE_VSA10": [
+        0.0,
+        75.0
+    ],
+    "PEOE_VSA11": [
+        0.0,
+        50.0
+    ],
+    "PEOE_VSA12": [
+        0.0,
+        50.0
+    ],
+    "PEOE_VSA13": [
+        0.0,
+        25.0
+    ],
+    "PEOE_VSA14": [
+        0.0,
+        50.0
+    ],
+    "PEOE_VSA2": [
+        0.0,
+        50.0
+    ],
+    "PEOE_VSA3": [
+        0.0,
+        50.0
+    ],
+    "PEOE_VSA4": [
+        0.0,
+        50.0
+    ],
+    "PEOE_VSA5": [
+        0.0,
+        50.0
+    ],
+    "PEOE_VSA6": [
+        0.0,
+        150.0
+    ],
+    "PEOE_VSA7": [
+        0.0,
+        150.0
+    ],
+    "PEOE_VSA8": [
+        0.0,
+        100.0
+    ],
+    "PEOE_VSA9": [
+        0.0,
+        75.0
+    ],
+    "RingCount": [
+        0.0,
+        12.0
+    ],
+    "SMR_VSA1": [
+        0.0,
+        75.0
+    ],
+    "SMR_VSA10": [
+        0.0,
+        100.0
+    ],
+    "SMR_VSA2": [
+        0.0,
+        25.0
+    ],
+    "SMR_VSA3": [
+        0.0,
+        50.0
+    ],
+    "SMR_VSA4": [
+        0.0,
+        75.0
+    ],
+    "SMR_VSA5": [
+        0.0,
+        250.0
+    ],
+    "SMR_VSA6": [
+        0.0,
+        100.0
+    ],
+    "SMR_VSA7": [
+        0.0,
+        200.0
+    ],
+    "SMR_VSA8": [
+        0.0,
+        50.0
+    ],
+    "SMR_VSA9": [
+        0.0,
+        75.0
+    ],
+    "SlogP_VSA1": [
+        0.0,
+        50.0
+    ],
+    "SlogP_VSA10": [
+        0.0,
+        50.0
+    ],
+    "SlogP_VSA11": [
+        0.0,
+        50.0
+    ],
+    "SlogP_VSA12": [
+        0.0,
+        75.0
+    ],
+    "SlogP_VSA2": [
+        0.0,
+        200.0
+    ],
+    "SlogP_VSA3": [
+        0.0,
+        75.0
+    ],
+    "SlogP_VSA4": [
+        0.0,
+        75.0
+    ],
+    "SlogP_VSA5": [
+        0.0,
+        200.0
+    ],
+    "SlogP_VSA6": [
+        0.0,
+        150.0
+    ],
+    "SlogP_VSA7": [
+        0.0,
+        25.0
+    ],
+    "SlogP_VSA8": [
+        0.0,
+        50.0
+    ],
+    "SlogP_VSA9": [
+        0.0,
+        1.0
+    ],
+    "TPSA": [
+        0.0,
+        500.0
+    ],
+    "VSA_EState1": [
+        0.0,
+        1.0
+    ],
+    "VSA_EState10": [
+        -25.0,
+        25.0
+    ],
+    "VSA_EState2": [
+        0.0,
+        1.0
+    ],
+    "VSA_EState3": [
+        0.0,
+        1.0
+    ],
+    "VSA_EState4": [
+        0.0,
+        1.0
+    ],
+    "VSA_EState5": [
+        0.0,
+        1.0
+    ],
+    "VSA_EState6": [
+        0.0,
+        1.0
+    ],
+    "VSA_EState7": [
+        0.0,
+        1.0
+    ],
+    "VSA_EState8": [
+        0.0,
+        150.0
+    ],
+    "VSA_EState9": [
+        0.0,
+        250.0
+    ],
+    "fr_Al_COO": [
+        0.0,
+        3.0
+    ],
+    "fr_Al_OH": [
+        0.0,
+        10.0
+    ],
+    "fr_Al_OH_noTert": [
+        0.0,
+        10.0
+    ],
+    "fr_ArN": [
+        0.0,
+        3.0
+    ],
+    "fr_Ar_COO": [
+        0.0,
+        3.0
+    ],
+    "fr_Ar_N": [
+        0.0,
+        10.0
+    ],
+    "fr_Ar_NH": [
+        0.0,
+        3.0
+    ],
+    "fr_Ar_OH": [
+        0.0,
+        10.0
+    ],
+    "fr_COO": [
+        0.0,
+        3.0
+    ],
+    "fr_COO2": [
+        0.0,
+        3.0
+    ],
+    "fr_C_O": [
+        0.0,
+        10.0
+    ],
+    "fr_C_O_noCOO": [
+        0.0,
+        10.0
+    ],
+    "fr_C_S": [
+        0.0,
+        3.0
+    ],
+    "fr_HOCCN": [
+        0.0,
+        3.0
+    ],
+    "fr_Imine": [
+        0.0,
+        3.0
+    ],
+    "fr_NH0": [
+        0.0,
+        10.0
+    ],
+    "fr_NH1": [
+        0.0,
+        10.0
+    ],
+    "fr_NH2": [
+        0.0,
+        5.0
+    ],
+    "fr_N_O": [
+        0.0,
+        3.0
+    ],
+    "fr_Ndealkylation1": [
+        0.0,
+        3.0
+    ],
+    "fr_Ndealkylation2": [
+        0.0,
+        3.0
+    ],
+    "fr_Nhpyrrole": [
+        0.0,
+        3.0
+    ],
+    "fr_SH": [
+        0.0,
+        3.0
+    ],
+    "fr_aldehyde": [
+        0.0,
+        3.0
+    ],
+    "fr_alkyl_carbamate": [
+        0.0,
+        3.0
+    ],
+    "fr_alkyl_halide": [
+        0.0,
+        10.0
+    ],
+    "fr_allylic_oxid": [
+        0.0,
+        10.0
+    ],
+    "fr_amide": [
+        0.0,
+        10.0
+    ],
+    "fr_amidine": [
+        0.0,
+        3.0
+    ],
+    "fr_aniline": [
+        0.0,
+        10.0
+    ],
+    "fr_aryl_methyl": [
+        0.0,
+        5.0
+    ],
+    "fr_azide": [
+        0.0,
+        3.0
+    ],
+    "fr_azo": [
+        0.0,
+        3.0
+    ],
+    "fr_barbitur": [
+        0.0,
+        3.0
+    ],
+    "fr_benzene": [
+        0.0,
+        10.0
+    ],
+    "fr_benzodiazepine": [
+        0.0,
+        3.0
+    ],
+    "fr_bicyclic": [
+        0.0,
+        10.0
+    ],
+    "fr_diazo": [
+        0.0,
+        3.0
+    ],
+    "fr_dihydropyridine": [
+        0.0,
+        3.0
+    ],
+    "fr_epoxide": [
+        0.0,
+        3.0
+    ],
+    "fr_ester": [
+        0.0,
+        5.0
+    ],
+    "fr_ether": [
+        0.0,
+        10.0
+    ],
+    "fr_furan": [
+        0.0,
+        3.0
+    ],
+    "fr_guanido": [
+        0.0,
+        3.0
+    ],
+    "fr_halogen": [
+        0.0,
+        10.0
+    ],
+    "fr_hdrzine": [
+        0.0,
+        3.0
+    ],
+    "fr_hdrzone": [
+        0.0,
+        3.0
+    ],
+    "fr_imidazole": [
+        0.0,
+        3.0
+    ],
+    "fr_imide": [
+        0.0,
+        3.0
+    ],
+    "fr_isocyan": [
+        0.0,
+        3.0
+    ],
+    "fr_isothiocyan": [
+        0.0,
+        3.0
+    ],
+    "fr_ketone": [
+        0.0,
+        5.0
+    ],
+    "fr_ketone_Topliss": [
+        0.0,
+        3.0
+    ],
+    "fr_lactam": [
+        0.0,
+        3.0
+    ],
+    "fr_lactone": [
+        0.0,
+        3.0
+    ],
+    "fr_methoxy": [
+        0.0,
+        10.0
+    ],
+    "fr_morpholine": [
+        0.0,
+        3.0
+    ],
+    "fr_nitrile": [
+        0.0,
+        3.0
+    ],
+    "fr_nitro": [
+        0.0,
+        3.0
+    ],
+    "fr_nitro_arom": [
+        0.0,
+        3.0
+    ],
+    "fr_nitro_arom_nonortho": [
+        0.0,
+        3.0
+    ],
+    "fr_nitroso": [
+        0.0,
+        3.0
+    ],
+    "fr_oxazole": [
+        0.0,
+        3.0
+    ],
+    "fr_oxime": [
+        0.0,
+        3.0
+    ],
+    "fr_para_hydroxylation": [
+        0.0,
+        5.0
+    ],
+    "fr_phenol": [
+        0.0,
+        10.0
+    ],
+    "fr_phenol_noOrthoHbond": [
+        0.0,
+        10.0
+    ],
+    "fr_phos_acid": [
+        0.0,
+        3.0
+    ],
+    "fr_phos_ester": [
+        0.0,
+        3.0
+    ],
+    "fr_piperdine": [
+        0.0,
+        3.0
+    ],
+    "fr_piperzine": [
+        0.0,
+        3.0
+    ],
+    "fr_priamide": [
+        0.0,
+        3.0
+    ],
+    "fr_prisulfonamd": [
+        0.0,
+        3.0
+    ],
+    "fr_pyridine": [
+        0.0,
+        3.0
+    ],
+    "fr_quatN": [
+        0.0,
+        3.0
+    ],
+    "fr_sulfide": [
+        0.0,
+        3.0
+    ],
+    "fr_sulfonamd": [
+        0.0,
+        3.0
+    ],
+    "fr_sulfone": [
+        0.0,
+        3.0
+    ],
+    "fr_term_acetylene": [
+        0.0,
+        3.0
+    ],
+    "fr_tetrazole": [
+        0.0,
+        3.0
+    ],
+    "fr_thiazole": [
+        0.0,
+        3.0
+    ],
+    "fr_thiocyan": [
+        0.0,
+        3.0
+    ],
+    "fr_thiophene": [
+        0.0,
+        3.0
+    ],
+    "fr_unbrch_alkane": [
+        0.0,
+        25.0
+    ],
+    "fr_urea": [
+        0.0,
+        3.0
+    ],
+    "qed": [
+        0.0,
+        1.0
+    ],
+    "AvgIpc": [
+        0.0,
+        5.0
+    ],
+    "SPS": [
+        0.0,
+        75.0
+    ],
+    "BCUT2D_MWHI": [
+        0.0,
+        250.0
+    ],
+    "BCUT2D_MWLOW": [
+        0.0,
+        50.0
+    ],
+    "BCUT2D_CHGHI": [
+        0.0,
+        5.0
+    ],
+    "BCUT2D_CHGLO": [
+        -5.0,
+        1.0
+    ],
+    "BCUT2D_LOGPHI":[
+        0.0,
+        12.0
+    ],
+    "BCUT2D_LOGPLOW":[
+        -5.0,
+        0.0
+    ],
+    "BCUT2D_MRHI":[
+        0.0,
+        25.0
+    ],
+    "BCUT2D_MRLOW":[
+        -2.5,
+        1.0
+    ]
+}

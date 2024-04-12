@@ -1,15 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import json
+from typing import List, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from rdkit import RDLogger
 from rdkit.Chem import AddHs, MolFromSmiles, MolToSmiles, RemoveHs
+from rdkit.Chem.Descriptors import CalcMolDescriptors
 from rdkit.rdBase import DisableLog
 from torch_geometric.data import Data, Dataset
 
-from descriptors import rdkit_descirptors
 from utils import atom_features, bond_features
 
 for level in RDLogger._levels:
@@ -49,11 +51,12 @@ class OneMol(Dataset):
 
 
 class AttFPDataset(Dataset):
-    def __init__(self, filename, delimiter="\t", smls_col="SMILES", random=False, steps=128000):
+    def __init__(self, filename, delimiter="\t", smls_col="SMILES", props=None, random=False, steps=128000):
         super(AttFPDataset, self).__init__()
         # tokenizer
         self.i2t, self.t2i = tokenizer()
         self.random = random
+        self.scaler = PropertyScaler(props)
 
         # Load smiles dataset
         if isinstance(filename, str):
@@ -63,7 +66,7 @@ class AttFPDataset(Dataset):
             self.data = pd.DataFrame({"SMILES": filename})
 
         self.max_len = self.data.SMILES.apply(lambda x: len(x)).max()
-        self.data = self.data.values.flatten()
+        self.data = self.data.SMILES.values.flatten()
         if isinstance(filename, str):
             print(f"Loaded {len(self.data)} SMILES")
             print("Max Length: ", self.max_len)
@@ -75,7 +78,7 @@ class AttFPDataset(Dataset):
         if self.random:  # randomly sample any molecule
             idx = np.random.randint(len(self.data))
         mol = MolFromSmiles(self.data[idx])
-        props = rdkit_descirptors([mol]).values[0]
+        props = self.scaler.transform(mol)  # get scaled properties between 0 and 1
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
@@ -116,6 +119,30 @@ def attentive_fp_features(mol):
         edge_indices += [[bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()]]
         edge_indices += [[bond.GetEndAtomIdx(), bond.GetBeginAtomIdx()]]
     return mol.GetNumAtoms(), atom_feats, bond_feats, np.array(edge_indices).T
+
+
+class PropertyScaler(object):
+    def __init__(self, descriptors: Union[List, None] = None):
+        self.descriptors = descriptors
+        self.load_min_max_values()
+
+    def load_min_max_values(self):
+        d = json.loads(open("data/property_scales.json").read())
+
+        if self.descriptors is not None:
+            d = {k: v for k, v in d.items() if k in self.descriptors}
+        else:
+            self.descriptors = list(d.keys())
+
+        self.min_val = {k: v[0] for k, v in d.items()}
+        self.max_val = {k: v[1] for k, v in d.items()}
+
+    def scale(self, x, n):
+        return (min(x, self.max_val[n]) - min(x, self.min_val[n])) / (self.max_val[n] - self.min_val[n])
+
+    def transform(self, mol):
+        props = CalcMolDescriptors(mol, missingVal=0)
+        return [self.scale(x, n) for n, x in props.items()]
 
 
 def tokenizer():

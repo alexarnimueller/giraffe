@@ -4,15 +4,19 @@
 Molecule preprocessing functions
 """
 
+import gzip
+import pickle
 from multiprocessing import Manager, Process, cpu_count
 
 import click
 import numpy as np
 import pandas as pd
 from rdkit.Chem import MolFromSmiles, MolToSmiles
+from rdkit.Chem.Descriptors import CalcMolDescriptors
 from tqdm.auto import tqdm
 
 from dataset import tokenizer
+from descriptors import scale_properties
 
 
 def keep_longest(smls, return_salt=False):
@@ -73,10 +77,9 @@ def smiles2mol(smiles, n_proc=1):
         smls = keep_longest(smls)
         smls = harmonize_sc(smls)
         mols = list()
-        for s in tqdm(smls):
+        for s in tqdm(smls, desc="Smiles2Mol"):
             try:
-                m = MolFromSmiles(s, 1)
-                mols.append(m)
+                mols.append(MolFromSmiles(s))
             except Exception:
                 print("Error! Can not process SMILES string %s" % s)
                 mols.append(None)
@@ -111,10 +114,9 @@ def mol2smiles(mols, n_proc=1):
 
     def process(mols, n, d):
         smls = list()
-        for m in tqdm(mols):
+        for m in tqdm(mols, desc="Mol2Smiles"):
             try:
-                s = MolToSmiles(m)
-                smls.append(s)
+                smls.append(MolToSmiles(m))
             except Exception:
                 continue
         d[n] = smls
@@ -140,7 +142,43 @@ def mol2smiles(mols, n_proc=1):
     for proc in processes:
         proc.join()
 
-    return [s for v in d.values() for s in v]
+    return [s for v in tqdm(d.values()) for s in v]
+
+
+def mol2props(mols, n_proc=1):
+    """generate RDKit properites for molecules"""
+
+    def process(mols, n, d):
+        props = list()
+        for m in tqdm(mols, desc="Mol2Smiles"):
+            try:
+                props.append(list(CalcMolDescriptors(m, missingVal=0.0).values()))
+            except Exception:
+                continue
+        d[n] = props
+
+    manager = Manager()
+    d = manager.dict()
+
+    if n_proc == -1:
+        n_proc = cpu_count()
+    processes = []
+    for i, m in enumerate(np.array_split(np.array(mols), n_proc)):
+        p = Process(
+            target=process,
+            args=(
+                m,
+                i,
+                d,
+            ),
+        )
+        processes.append(p)
+        p.start()
+
+    for proc in processes:
+        proc.join()
+
+    return [s for v in tqdm(d.values()) for s in v]
 
 
 def preprocess_df(filename, smls_col, delimiter, n_proc=1):
@@ -151,10 +189,52 @@ def preprocess_df(filename, smls_col, delimiter, n_proc=1):
     print("molecules generated")
     smls = mol2smiles(mols, n_proc=n_proc)
     print("molecules filtered")
-    data = pd.DataFrame({"SMILES": smls})
+    data = pd.DataFrame({"SMILES": smls, "MOL": mols})
     data = data[data.SMILES.apply(lambda x: all([c in t2i.keys() for c in x]))]
     print("smiles token checked")
     return data
+
+
+def preprocess_single_core(filename, smls_col, delimiter):
+    def fun(s):
+        try:
+            m = MolFromSmiles(s)
+        except TypeError:
+            m = None
+        return m
+
+    _, t2i = tokenizer()
+    data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
+    print("data read")
+    smls = keep_longest(data.SMILES.values)
+    smls = harmonize_sc(smls)
+    mols = [m for m in [fun(s) for s in smls] if m is not None]
+    print("molecules generated")
+    smls = [MolToSmiles(m) for m in tqdm(mols, desc="Mol2Smiles")]
+    print("molecules filtered")
+    data = pd.DataFrame({"SMILES": smls, "MOL": mols})
+    data = data[data.SMILES.apply(lambda x: all([c in t2i.keys() for c in x]))]
+    print("smiles token checked")
+    return data
+
+
+def create_property_scaler(mols: list, filename: str):
+    def process(m):
+        return list(CalcMolDescriptors(m, missingVal=0).values())
+
+    print("calculating properties")
+    props = np.asarray([process(m) for m in mols])
+    print("properties calculated, creating scaler")
+    _ = scale_properties(props, save_to=filename)
+
+
+def create_properties(mols: list, filename: str):
+    def process(m):
+        return list(CalcMolDescriptors(m, missingVal=0).values())
+
+    print("calculating properties")
+    props = np.asarray([process(m) for m in mols])
+    pickle.dump(props, gzip.open(filename, "wb"))
 
 
 @click.command()
@@ -163,8 +243,14 @@ def preprocess_df(filename, smls_col, delimiter, n_proc=1):
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
 @click.option("-n", "--n_proc", default=4, help="Number of parallel processes to use. -1 = all")
 def main(filename, smls_col, delimiter, n_proc):
-    data = preprocess_df(filename, smls_col, delimiter, n_proc=n_proc)
-    data.to_csv(f"{filename[:-4]}_proc.txt", sep="\t", index=False)
+    if n_proc == 1:
+        data = preprocess_single_core(filename, smls_col, delimiter)
+    else:
+        data = preprocess_df(filename, smls_col, delimiter, n_proc=n_proc)
+    create_properties(data, f"{filename[:-4]}_properties.pkl.gz")
+    data.drop(columns="MOL").to_csv(f"{filename[:-4]}_proc.txt", sep="\t", index=False)
+    print("preprocessing completed!")
+    # print(f"saved data to {filename[:-4]}_proc.txt and std scaler to {filename[:-4]}_scaler.bin")
 
 
 if __name__ == "__main__":

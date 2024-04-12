@@ -7,6 +7,7 @@ from time import time
 
 import numpy as np
 import pandas as pd
+from joblib import dump, load
 from rdkit.Chem import (
     AddHs,
     AllChem,
@@ -15,6 +16,7 @@ from rdkit.Chem import (
     Descriptors3D,
     MACCSkeys,
 )
+from rdkit.Chem.Descriptors import CalcMolDescriptors
 from rdkit.Chem.Fingerprints.FingerprintMols import FingerprintMol
 from rdkit.Chem.Pharm2D import Generate
 from rdkit.Chem.Pharm2D.SigFactory import SigFactory
@@ -26,10 +28,12 @@ from rdkit.DataStructs import (
 )
 from rdkit.SimDivFilters import MaxMinPicker
 from sklearn.metrics.pairwise import cosine_distances, euclidean_distances
+from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
 
 
 def _rdk2numpy(fps):
-    """ private function to transform RDKit fingerprints into numpy arrays
+    """private function to transform RDKit fingerprints into numpy arrays
 
     :param fps: {list} list of RDKit fingerprints
     :return: {numpy.ndarray} fingerprints in array
@@ -43,7 +47,7 @@ def _rdk2numpy(fps):
 
 
 def tanimoto(vector1, vector2):
-    """ function to calculate the taniomoto similarity of two binary vectors of the same length. only on-bits are
+    """function to calculate the taniomoto similarity of two binary vectors of the same length. only on-bits are
     considered. The formula used is:
 
     .. math::
@@ -84,7 +88,7 @@ def euclidean_dist(vector1, vector2):
 
 
 def numpy_fps(mols, r, features=True, bits=1024):
-    """ Calculate RDKit morgan fingerprints and output them as a numpy array
+    """Calculate RDKit morgan fingerprints and output them as a numpy array
 
     :param mols: {list} list of molecules (RDKit mols)
     :param r: {int} radius to consider when calculating the fingerprints
@@ -93,11 +97,12 @@ def numpy_fps(mols, r, features=True, bits=1024):
     :return: numpy array containing row-wise fingerprints for every molecule
     """
     return _rdk2numpy(
-        [AllChem.GetMorganFingerprintAsBitVect(m, r, useFeatures=features, nBits=bits) for m in mols if m])
+        [AllChem.GetMorganFingerprintAsBitVect(m, r, useFeatures=features, nBits=bits) for m in mols if m]
+    )
 
 
 def numpy_rdk_fps(mols):
-    """ Calculate RDKit daylight style fingerprints and output them as a numpy array
+    """Calculate RDKit daylight style fingerprints and output them as a numpy array
 
     :param mols: {list} list of molecules (RDKit mols)
     :return: numpy array containing row-wise fingerprints for every molecule
@@ -106,7 +111,7 @@ def numpy_rdk_fps(mols):
 
 
 def numpy_pp_fps(mols):
-    """ Calculate Gobbi and Poppinger pharmacophore fingerprints and return them as numpy.ndarrays
+    """Calculate Gobbi and Poppinger pharmacophore fingerprints and return them as numpy.ndarrays
 
     :param mols: {list} list of molecules (RDKit mols)
     :return: numpy array containing row-wise fingerprints for every molecule
@@ -119,7 +124,7 @@ def numpy_pp_fps(mols):
 
 
 def numpy_maccs(mols):
-    """ Calculate MACCS keys and output them as a numpy array
+    """Calculate MACCS keys and output them as a numpy array
 
     :param mols: {list} list of molecules (RDKit mols)
     :return: numpy array containing row-wise MACCS keys for every molecule
@@ -128,7 +133,7 @@ def numpy_maccs(mols):
 
 
 def numpy_atompair(mols):
-    """ Calculate atom pair fingerprints and output them as a numpy array
+    """Calculate atom pair fingerprints and output them as a numpy array
 
     :param mols: {list} list of molecules (RDKit mols)
     :return: numpy array containing row-wise fingerprints for every molecule
@@ -136,9 +141,24 @@ def numpy_atompair(mols):
     return _rdk2numpy([MACCSkeys.GenMACCSKeys(m) for m in mols if m])
 
 
-def rdkit_descirptors(mols, regex="(MolWt)|(MolLogP)|(TPSA)|(.*Count)|(Num.*)|(FractionCSP3)|(.*VSA.*)|(Topliss.*)"
-                                  "|(Chi.*)|(.*Density.*)|(MQNs)|(Autocorr2D)"):
-    """ calculates a set of RDKit descriptors for given molecules (RDKit) ``mols``
+def scale_properties(data: np.array, checkpoint: str = None, save_to: str = None):
+    if checkpoint:
+        sclr = load(checkpoint)
+    else:
+        sclr = StandardScaler()
+        sclr = sclr.fit(data)
+        if save_to:
+            dump(sclr, save_to, compress=True)
+    return sclr.transform(data)
+
+
+def rdkit_descirptors(
+    mols,
+    regex="(MolWt)|(MolLogP)|(TPSA)|(.*Count)|(Num.*)|(FractionCSP3)|(.*VSA.*)|(Topliss.*)"
+    "|(Chi.*)|(.*Density.*)|(MQNs)|(Autocorr2D)|(fr_.*)",
+    verbose=False,
+):
+    """calculates a set of RDKit descriptors for given molecules (RDKit) ``mols``
 
     :param mols: {str} RDKit molecules
     :param regex: {str} regular expression to match RDKit functions
@@ -150,14 +170,16 @@ def rdkit_descirptors(mols, regex="(MolWt)|(MolLogP)|(TPSA)|(.*Count)|(Num.*)|(F
     for descriptor, func in Descriptors.descList:
         if desc_regex.match(descriptor):
             rslt[descriptor] = list()
-            for mol in mols:
+            for mol in tqdm(mols, desc=descriptor, disable=not verbose):
                 rslt[descriptor].append(func(mol))
     return pd.DataFrame(rslt)
 
 
-def rdkit_3d_descirptors(mols, regex="(NPR1)|(NPR2)|(PMI1)|(PMI2)|(PMI3)|(SpherocityIndex)|(InertialShapeFactor)|"
-                                     "(Eccentricity)|(Asphericity)"):
-    """ embeds molecules in 3D and calculates a set of RDKit descriptors for given molecules (RDKit) ``mols``
+def rdkit_3d_descirptors(
+    mols,
+    regex="(NPR1)|(NPR2)|(PMI1)|(PMI2)|(PMI3)|(SpherocityIndex)|(InertialShapeFactor)|(Eccentricity)|(Asphericity)",
+):
+    """embeds molecules in 3D and calculates a set of RDKit descriptors for given molecules (RDKit) ``mols``
 
     :param mols: {str} RDKit molecules
     :param regex: {str} regular expression to match RDKit functions
@@ -182,8 +204,8 @@ def rdkit_3d_descirptors(mols, regex="(NPR1)|(NPR2)|(PMI1)|(PMI2)|(PMI3)|(Sphero
     return pd.DataFrame(rslt)
 
 
-def fp_similarity(fp1, fp2, metric='tanimoto'):
-    """ Calculate the Tanimoto similarity between two fingerprints
+def fp_similarity(fp1, fp2, metric="tanimoto"):
+    """Calculate the Tanimoto similarity between two fingerprints
 
     :param fp1: {numpy array / RDKit fingerprint} Fingerprint 1
     :param fp2: {numpy array / RDKit fingerprint} Fingerprint 2
@@ -194,14 +216,14 @@ def fp_similarity(fp1, fp2, metric='tanimoto'):
     if isinstance(fp1, cDataStructs.ExplicitBitVect):
         return FingerprintSimilarity(fp1, fp2, metric=TanimotoSimilarity)
     elif isinstance(fp1, np.ndarray):
-        if metric.lower() == 'tanimoto':
+        if metric.lower() == "tanimoto":
             return tanimoto(fp1, fp2)
-        elif metric.lower() == 'cosine':
+        elif metric.lower() == "cosine":
             return cosine_dist(fp1, fp2)
-        elif metric.lower() == 'euclidean':
+        elif metric.lower() == "euclidean":
             return euclidean_dist(fp1, fp2)
         else:
-            raise NotImplementedError('Only the following distance metrics are available: tanimoto, cosine, euclidean')
+            raise NotImplementedError("Only the following distance metrics are available: tanimoto, cosine, euclidean")
     else:
         raise TypeError("Fingerprints must be of type numpy.ndarray or rdkit.DataStructs.cDataStructs.ExplicitBitVect")
 
@@ -232,7 +254,7 @@ def _batch_vs_all(batch, fps, q, mtrc):
     q.put(np.asarray([[fp_similarity(fp1, fp2, mtrc) for fp2 in fps] for fp1 in batch]))
 
 
-def parallel_pairwise_similarities(fps, fps2=None, metric='tanimoto'):
+def parallel_pairwise_similarities(fps, fps2=None, metric="tanimoto"):
     """Function for parallel pairwise similarity calculation of RDKit-type fingerprints
 
     :param fps: {list} list of fingerprints (or numpy array) to calculate pairwise similarities for
@@ -246,22 +268,32 @@ def parallel_pairwise_similarities(fps, fps2=None, metric='tanimoto'):
     if len(fps.shape) == 1:
         fps = fps.reshape(1, -1)
     if len(fps) < int(
-            10 * cpu_count()):  # if only small array, don't parallelize and calculate all internal similarities
+        10 * cpu_count()
+    ):  # if only small array, don't parallelize and calculate all internal similarities
         rslt = np.array([list(map(lambda x: fp_similarity(fp, x, metric), fps)) for fp in fps2]).reshape(
-            (len(fps), len(fps2), 1))
+            (len(fps), len(fps2), 1)
+        )
     else:
         queue = Queue()
         rslt = []
         for batch in list2batches(fps, cpu_count()):
-            p = Process(target=_batch_vs_all, args=(batch, fps2, queue, metric,))
+            p = Process(
+                target=_batch_vs_all,
+                args=(
+                    batch,
+                    fps2,
+                    queue,
+                    metric,
+                ),
+            )
             p.start()
         for _ in range(cpu_count()):
             rslt.extend(queue.get())
-    return np.array(rslt).astype('float')
+    return np.array(rslt).astype("float")
 
 
-def get_n_neighbors(fps, fps2, n, metric='tanimoto'):
-    """ Function to get "N" nearest neighbors for a given set of molecules (´fps´, represented as fingerprint /
+def get_n_neighbors(fps, fps2, n, metric="tanimoto"):
+    """Function to get "N" nearest neighbors for a given set of molecules (´fps´, represented as fingerprint /
     descriptor) compared to a set of different molecules (´fps2´, same representation).
 
     :param fps: {list} list of RDKit fingerprints to calculate pairwise similarities for
@@ -275,8 +307,8 @@ def get_n_neighbors(fps, fps2, n, metric='tanimoto'):
     return np.argsort(sims)[:, -n:][:, ::-1]  # indices of n most similar members of fps2 for every member of fps
 
 
-def minmax(m, num=10, metric='tanimoto', seed=42):
-    """ MinMax selection algorithm
+def minmax(m, num=10, metric="tanimoto", seed=42):
+    """MinMax selection algorithm
 
     :param m: {array} Input matrix with vectors to make MinMax selection from
     :param num: {int} Number of selections to do
@@ -293,8 +325,8 @@ def minmax(m, num=10, metric='tanimoto', seed=42):
 
     # Randomly selecting first molecule into the sele
     idx = int(np.random.randint(0, m.shape[0], 1))
-    sele = pool[idx:idx + 1, :]
-    minmaxidx = np.where(np.all(m == pool[idx:idx + 1, :], axis=1))[0].tolist()  # store original indices to return
+    sele = pool[idx : idx + 1, :]
+    minmaxidx = np.where(np.all(m == pool[idx : idx + 1, :], axis=1))[0].tolist()  # store original indices to return
 
     # Deleting selected molecule in selection from pool
     pool = np.delete(pool, idx, axis=0)
@@ -302,7 +334,7 @@ def minmax(m, num=10, metric='tanimoto', seed=42):
     for _ in range(num - 1):
         # Calculating distance from selected instances to the rest of the pool
         dist = parallel_pairwise_similarities(pool, sele, metric)
-        if metric.lower() == 'tanimoto':
+        if metric.lower() == "tanimoto":
             dist = 1 - dist
 
         # Choosing maximal distances for every selected instance
@@ -314,8 +346,8 @@ def minmax(m, num=10, metric='tanimoto', seed=42):
         idx = int(maxidx[minmax])  # index of the least most distant instance to each of the selected ones
 
         # Adding it to selection minmax indices and removing from pool
-        sele = np.vstack((sele, pool[idx:idx + 1, :]))
-        minmaxidx.extend(np.where(np.all(m == pool[idx:idx + 1, :], axis=1))[0])
+        sele = np.vstack((sele, pool[idx : idx + 1, :]))
+        minmaxidx.extend(np.where(np.all(m == pool[idx : idx + 1, :], axis=1))[0])
         pool = np.delete(pool, idx, axis=0)
 
     print("MinMax selection took %.1f" % (time() - start))  # toc
@@ -323,7 +355,7 @@ def minmax(m, num=10, metric='tanimoto', seed=42):
 
 
 def minmax_rdkit(mols, num=10):
-    """ RDKit implementation of the MinMax picker for fingerprints
+    """RDKit implementation of the MinMax picker for fingerprints
 
     :param mols: RDKit molecules
     :param num:
@@ -337,14 +369,14 @@ def minmax_rdkit(mols, num=10):
     return [i for i in picks]
 
 
-def get_cats_factory(features='cats', names=False):
-    """ Get the feature combinations paired to all possible distances
+def get_cats_factory(features="cats", names=False):
+    """Get the feature combinations paired to all possible distances
 
     :param features: {str} which pharmacophore features to consider; available: ["cats", "rdkit"]
     :param names: {bool} whether to return an array describing the bits with names of features and distances
     :return: RDKit signature factory to be used for 2D pharmacophore fingerprint calculation
     """
-    if features == 'cats':
+    if features == "cats":
         fdef = fdef_cats
     else:
         fdef = fdef_rdkit
@@ -360,7 +392,7 @@ def get_cats_factory(features='cats', names=False):
 
 
 def _cats_corr(mols, q):
-    """ private cats descriptor function to be used in multiprocessing
+    """private cats descriptor function to be used in multiprocessing
 
     :param mols: {list/array} molecules (RDKit mol) to calculate the descriptor for
     :param q: {queue} multiprocessing queue instance
@@ -371,13 +403,13 @@ def _cats_corr(mols, q):
     for mol in mols:
         arr = np.zeros((1,))
         ConvertToNumpyArray(Generate.Gen2DFingerprint(mol, factory), arr)
-        scale = np.array([10 * [sum(arr[i:i + 10])] for i in range(0, 210, 10)]).flatten()
+        scale = np.array([10 * [sum(arr[i : i + 10])] for i in range(0, 210, 10)]).flatten()
         fps.append(np.divide(arr, scale, out=np.zeros_like(arr), where=scale != 0))
-    q.put(np.array(fps).reshape((len(mols), 210)).astype('float32'))
+    q.put(np.array(fps).reshape((len(mols), 210)).astype("float32"))
 
 
 def _one_cats(mol):
-    """ Function to calculate the CATS pharmacophore descriptor for one molecule.
+    """Function to calculate the CATS pharmacophore descriptor for one molecule.
     Descriptions of the individual features can be obtained from the function ``get_cats_sigfactory``.
 
     :param mol: {RDKit molecule} molecule to calculate the descriptor for
@@ -386,12 +418,12 @@ def _one_cats(mol):
     factory = get_cats_factory()
     arr = np.zeros((1,))
     ConvertToNumpyArray(Generate.Gen2DFingerprint(mol, factory), arr)
-    scale = np.array([10 * [sum(arr[i:i + 10])] for i in range(0, 210, 10)]).flatten()
-    return np.divide(arr, scale, out=np.zeros_like(arr), where=scale != 0).astype('float32')
+    scale = np.array([10 * [sum(arr[i : i + 10])] for i in range(0, 210, 10)]).flatten()
+    return np.divide(arr, scale, out=np.zeros_like(arr), where=scale != 0).astype("float32")
 
 
 def cats_descriptor(mols):
-    """ Function to calculate the CATS pharmacophore descriptor for a set of molecules.
+    """Function to calculate the CATS pharmacophore descriptor for a set of molecules.
     Descriptions of the individual features can be obtained from the function ``get_cats_sigfactory``.
 
     :param mols: {list/array} molecules (RDKit mol) to calculate the descriptor for
@@ -404,11 +436,17 @@ def cats_descriptor(mols):
             rslt.append(_one_cats(mol))
     else:
         for m in np.array_split(np.array(mols), cpu_count()):
-            p = Process(target=_cats_corr, args=(m, queue,))
+            p = Process(
+                target=_cats_corr,
+                args=(
+                    m,
+                    queue,
+                ),
+            )
             p.start()
         for _ in range(cpu_count()):
             rslt.extend(queue.get(10))
-    return np.array(rslt).reshape((len(mols), 210)).astype('float32')
+    return np.array(rslt).reshape((len(mols), 210)).astype("float32")
 
 
 fdef_cats = """
