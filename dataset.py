@@ -78,7 +78,7 @@ class AttFPDataset(Dataset):
         if self.random:  # randomly sample any molecule
             idx = np.random.randint(len(self.data))
         mol = MolFromSmiles(self.data[idx])
-        props = self.scaler.transform(mol)  # get scaled properties between 0 and 1
+        props = np.nan_to_num(self.scaler.transform(mol), 0.0)  # get scaled properties between 0 and 1
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)

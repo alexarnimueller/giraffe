@@ -80,7 +80,7 @@ def main(
         "lr_step": lr_step,
         "save_after": after,
     }
-    config["weight_props"] = w = 15.0
+    config["weight_props"] = w = 1.0
     config["dim_gnn"] = dim_gnn = 512
     config["n_gnn_layers"] = n_layers = 3
     config["n_rnn_layers"] = n_rnn_layers = 2
@@ -170,7 +170,7 @@ def main(
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
-        nvl, _ = temperature_sampling(gnn, rnn, 0.2, np.random.choice(val_set.dataset.data, 1)[0], 10, 96, True)
+        nvl, _ = temperature_sampling(gnn, rnn, 0.1, np.random.choice(val_set.dataset.data, 1)[0], 10, 96, True)
 
         # save loss and models
         if epoch % after == 0:
@@ -212,7 +212,7 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
 
         # Properties loss
         pred_props = mlp(torch.sum(hn, dim=0))
-        loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
+        loss_props = torch.nan_to_num(criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))), nan=1e-6)
 
         # combine losses, apply weight to have approx. same values
         loss = loss_mol + torch.multiply(loss_props, w)
