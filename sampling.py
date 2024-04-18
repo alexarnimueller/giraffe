@@ -2,20 +2,17 @@
 # -*- coding: utf-8
 
 import configparser
-import heapq
 import os
-import random
 
 import click
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
 
-from dataset import AttFPDataset, OneMol, tokenizer
-from model import LSTM, AttentiveFP2
+from dataset import OneMol, tokenizer
+from model import LSTM, AttentiveFP
 from utils import get_input_dims, is_valid_mol
 
 for level in RDLogger._levels:
@@ -29,7 +26,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-e", "--epoch", help="Epoch of models to load.")
 @click.option("-s", "--smiles", default=None, help="Reference SMILES to use as seed for sampling.")
 @click.option("-n", "--num", default=100, help="How many molecules to sample.")
-@click.option("-t", "--temp", default=0.5, help="Temperature to use for multinomial sampling.")
+@click.option("-t", "--temp", default=0.6, help="Temperature to transform logits before for multinomial sampling.")
 @click.option("-l", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
 def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     dim_atom, dim_bond = get_input_dims()
@@ -49,7 +46,7 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
         assert Chem.MolFromSmiles(smiles), "invalid SMILES string!"
     else:
         with open(conf["filename"], "r") as f:  # randomly take num SMILES from the training dataset
-            smiles = [s.strip() for s in heapq.nlargest(num, f, key=lambda x: random.random())]
+            smiles = [s.strip() for s in np.random.choice(f.readlines(), num)]
 
     # Define models
     rnn = LSTM(
@@ -59,15 +56,14 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
         layers=conf["n_rnn_layers"],
         dropout=conf["dropout"],
     )
-    gnn = AttentiveFP2(
+    gnn = AttentiveFP(
         in_channels=dim_atom,
         hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
-        dropout=conf["dropout"],
         edge_dim=dim_bond,
         num_layers=conf["n_gnn_layers"],
         num_timesteps=conf["n_kernels"],
-        num_outputs=conf["n_rnn_layers"],
+        dropout=conf["dropout"],
     )
 
     gnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"atfp_{epoch}.pt"), map_location=DEVICE))
@@ -89,14 +85,13 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
 def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False):
     gnn.eval()
     rnn.eval()
-    softmax = nn.Softmax(dim=1)
     i2t, t2i = tokenizer()
 
-    if isinstance(smiles, str):
+    if isinstance(smiles, str):  # single SMILES
         maxlen = max(maxlen, len(smiles))
-        dataset = OneMol(smiles, maxlen)
+        dataset = [OneMol(smiles, maxlen)] * num_mols
     else:  # list
-        dataset = AttFPDataset(smiles)
+        dataset = [OneMol(s, maxlen) for s in smiles]
 
     if verbose:
         trange = range
@@ -105,7 +100,7 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False
 
     smiles_list, score_list = [], []
     for i in trange(num_mols):
-        g = dataset[i].to(DEVICE)
+        g = dataset[i][0].to(DEVICE)
         g.batch = torch.tensor([0] * g.num_nodes).to(DEVICE)
 
         # initialize RNN hiddens with GNN features and cell states with 0
@@ -113,22 +108,22 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False
         step, stop = 0, False
         with torch.no_grad():
             hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+            hn = torch.cat(
+                [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
+            )
             cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
             nxt = torch.tensor([[t2i["^"]]]).to(DEVICE)  # start token
             pred_smls_list = []
             while not stop:
-                # get next prediction and calculate propabilities
+                # get next prediction and calculate propabilities (apply temperature to logits)
                 pred, (hn, cn) = rnn(nxt, (hn, cn))
-                prob = softmax(pred.squeeze(0)).cpu().detach().numpy()[0].astype("float64")
-
-                # transform with temperature and get most probable token
-                pred = prob_to_token_with_temp(prob, temp=temp)
+                prob = torch.softmax(pred.squeeze(0) / temp, dim=-1)
+                pred = torch.multinomial(prob, num_samples=1).item()
                 pred_smls_list.append(pred)
                 nxt = torch.LongTensor([[pred]]).to(DEVICE)
 
                 # calculate score (the higher the %, the smaller the log-likelihood)
-                score += +(-np.log(prob[pred]))
-
+                score += +(-torch.log(prob[0, pred]).detach().cpu().numpy())
                 if i2t[pred] == "$" or len(pred_smls_list) > maxlen:  # stop once the end token is reached
                     stop = True
                 step += 1
@@ -157,11 +152,6 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False
 
     print(f"Sampled {len(smiles_list)} valid, {novels} novel and {len(inchiks)} unique molecules")
     return unique, probs_abs
-
-
-def prob_to_token_with_temp(prob, temp):
-    pred = np.exp(prob / temp) / np.sum(np.exp(prob / temp))
-    return np.argmax(np.random.multinomial(1, pred, size=1))
 
 
 if __name__ == "__main__":

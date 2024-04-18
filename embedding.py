@@ -54,7 +54,7 @@ def main(input_file, output_file, delimiter, smls_col, folder, epoch, batch_size
         out_channels=conf["dim_rnn"],
         dropout=conf["dropout"],
         edge_dim=dim_bond,
-        num_layers=conf["n_layers"],
+        num_layers=conf["n_gnn_layers"],
         num_timesteps=conf["n_kernels"],
     )
     path = os.path.join(folder, f"atfp_{epoch}.pt")
@@ -79,7 +79,8 @@ def smiles_embedding(gnn, smiles, batch_size, n_jobs):
     embs = torch.empty((0, gnn.out_channels), dtype=torch.float32).to(DEVICE)
     for g in tqdm(loader, desc="Embedding"):
         g = g.to(DEVICE)
-        embs = torch.cat((embs, gnn(g.atoms, g.edge_index, g.bonds, g.batch)))
+        h = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+        embs = torch.cat((embs, h))
     return embs.detach().cpu().numpy()
 
 

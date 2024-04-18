@@ -51,19 +51,40 @@ class OneMol(Dataset):
 
 
 class AttFPDataset(Dataset):
-    def __init__(self, filename, delimiter="\t", smls_col="SMILES", props=None, random=False, steps=128000):
+
+    def __init__(
+        self, filename, delimiter="\t", smls_col="SMILES", props=None, scaled_props=True, random=False, steps=128000
+    ):
         super(AttFPDataset, self).__init__()
         # tokenizer
         self.i2t, self.t2i = tokenizer()
         self.random = random
-        self.scaler = PropertyScaler(props)
+        self.scaled_props = scaled_props
+        self.scaler = PropertyScaler(props, do_scale=scaled_props)
 
         # Load smiles dataset
         if isinstance(filename, str):
             print("\nReading SMILES dataset...")
-            self.data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
-        elif isinstance(filename, list):
+            self.data = pd.read_csv(filename, delimiter=delimiter)
+            if smls_col not in self.data.columns and len(self.data.columns) == 1:
+                self.data = pd.concat(
+                    (
+                        pd.DataFrame({"SMILES": self.data.columns.tolist()}),
+                        self.data.rename(columns={self.data.columns[0]: "SMILES"}),
+                    )
+                )
+            else:
+                self.data = self.data.rename(columns={smls_col: "SMILES"})
+
+        elif isinstance(filename, list) or isinstance(filename, np.ndarray):
             self.data = pd.DataFrame({"SMILES": filename})
+        elif isinstance(filename, pd.Series):
+            self.data = filename.to_frame()
+            self.data.columns = ["SMILES"]
+        else:
+            raise NotImplementedError(
+                f"Can only understand str, list/array or Series as filename! {type(filename)} provided"
+            )
 
         self.max_len = self.data.SMILES.apply(lambda x: len(x)).max()
         self.data = self.data.SMILES.values.flatten()
@@ -122,9 +143,10 @@ def attentive_fp_features(mol):
 
 
 class PropertyScaler(object):
-    def __init__(self, descriptors: Union[List, None] = None):
+    def __init__(self, descriptors: Union[List, None] = None, do_scale: bool = True):
         self.descriptors = descriptors
         self.load_min_max_values()
+        self.do_scale = do_scale
 
     def load_min_max_values(self):
         d = json.loads(open("data/property_scales.json").read())
@@ -138,62 +160,96 @@ class PropertyScaler(object):
         self.max_val = {k: v[1] for k, v in d.items()}
 
     def scale(self, x, n):
-        return (min(x, self.max_val[n]) - min(x, self.min_val[n])) / (self.max_val[n] - self.min_val[n])
+        try:
+            return (min(x, self.max_val[n]) - min(x, self.min_val[n])) / (self.max_val[n] - self.min_val[n])
+        except KeyError:
+            raise KeyError(x, n, self.min_val, self.max_val, self.descriptors)
 
     def transform(self, mol):
-        props = CalcMolDescriptors(mol, missingVal=0)
-        return [self.scale(x, n) for n, x in props.items()]
+        props = {k: v for k, v in CalcMolDescriptors(mol, missingVal=0).items() if k in self.descriptors}
+        if self.do_scale:
+            return [self.scale(x, n) for n, x in props.items()]
+        else:
+            return [v for v in props.values()]
 
 
 def tokenizer():
     """Function to generate all possibly relevant SMILES token and put them into two translation dictionaries"""
     indices_token = {
         0: " ",
-        1: "C",
-        2: "N",
-        3: "O",
-        4: "S",
-        5: "P",
-        6: "F",
-        7: "B",
-        8: "I",
-        9: "H",
-        10: "l",
-        11: "r",
-        12: "i",
-        13: "h",
-        14: "c",
-        15: "n",
-        16: "o",
-        17: "s",
-        18: "p",
-        19: "b",
-        20: ".",
-        21: "%",
-        22: "(",
-        23: ")",
-        24: "[",
-        25: "]",
-        26: "@",
-        27: "-",
-        28: "=",
-        29: "#",
-        30: ":",
-        31: "\\",
-        32: "/",
-        33: "0",
-        34: "1",
-        35: "2",
-        36: "3",
-        37: "4",
-        38: "5",
-        39: "6",
-        40: "7",
-        41: "8",
-        42: "9",
-        43: "+",
-        44: "^",
-        45: "$",
+        1: "#",
+        2: "%",
+        3: "(",
+        4: ")",
+        5: "*",
+        6: "+",
+        7: "-",
+        8: ".",
+        9: "/",
+        10: "0",
+        11: "1",
+        12: "2",
+        13: "3",
+        14: "4",
+        15: "5",
+        16: "6",
+        17: "7",
+        18: "8",
+        19: "9",
+        20: ":",
+        21: "=",
+        22: "@",
+        23: "A",
+        24: "B",
+        25: "C",
+        26: "D",
+        27: "E",
+        28: "F",
+        29: "G",
+        30: "H",
+        31: "I",
+        32: "K",
+        33: "L",
+        34: "M",
+        35: "N",
+        36: "O",
+        37: "P",
+        38: "R",
+        39: "S",
+        40: "T",
+        41: "U",
+        42: "V",
+        43: "W",
+        44: "X",
+        45: "Y",
+        46: "Z",
+        47: "[",
+        48: "\\",
+        49: "]",
+        50: "a",
+        51: "b",
+        52: "c",
+        53: "d",
+        54: "e",
+        55: "f",
+        56: "g",
+        57: "h",
+        58: "i",
+        59: "k",
+        60: "l",
+        61: "m",
+        62: "n",
+        63: "o",
+        64: "p",
+        65: "r",
+        66: "s",
+        67: "t",
+        68: "u",
+        69: "y",
+        70: "{",
+        71: "}",
+        72: "^",
+        73: "$",
     }
     token_indices = {v: k for k, v in indices_token.items()}
     return indices_token, token_indices

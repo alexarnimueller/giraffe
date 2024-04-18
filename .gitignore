@@ -2,6 +2,7 @@ sHPC/
 models/
 logs/
 output/
+benchmarks/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

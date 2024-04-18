@@ -17,7 +17,7 @@ from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
 from dataset import AttFPDataset, tokenizer
-from model import FFNN, LSTM, AttentiveFP2
+from model import FFNN, LSTM, AttentiveFP
 from sampling import temperature_sampling
 from utils import get_input_dims
 
@@ -32,17 +32,27 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-e", "--epochs", default=100, help="Nr. of epochs to train.")
-@click.option("-o", "--dropout", default=0.2, help="Dropout fraction.")
+@click.option("-e", "--epochs", default=200, help="Nr. of epochs to train.")
+@click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
 @click.option("-es", "--epoch_steps", default=256000, help="If random, number of steps per epoch.")
 @click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
-@click.option("-l", "--lr", default=0.005, help="Learning rate.")
-@click.option("-f", "--lr_factor", default=0.8, help="Factor for learning rate decay.")
-@click.option("-s", "--lr_step", default=10, help="Step size for learning rate decay.")
+@click.option("-l", "--lr", default=1e-3, help="Learning rate.")
+@click.option("-lf", "--lr_fact", default=0.75, help="Learning rate decay factor.")
+@click.option("-ls", "--lr_step", default=10, help="LR Step decay after nr. of epochs.")
 @click.option("-a", "--after", default=5, help="Epoch steps to save model.")
-@click.option("-p", "--n_proc", default=4, help="Number of CPU processes to use.")
+@click.option("-nk", "--kernels_gnn", default=2, help="Nr. GNN kernels")
+@click.option("-ng", "--layers_gnn", default=2, help="Nr. GNN layers")
+@click.option("-nr", "--layers_rnn", default=2, help="Nr. RNN layers")
+@click.option("-nm", "--layers_mlp", default=2, help="Nr. MLP layers")
+@click.option("-dg", "--dim_gnn", default=512, help="Hidden dimension of GNN layers")
+@click.option("-dr", "--dim_rnn", default=512, help="Hidden dimension of RNN layers")
+@click.option("-de", "--dim_emb", default=512, help="Dimension of RNN token embedding")
+@click.option("-dm", "--dim_mlp", default=512, help="Hidden dimension of MLP layers")
+@click.option("-wp", "--prop_weight", default=0.1, help="Factor for weighting property loss vs. SMILES")
+@click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
+@click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
 def main(
     filename,
     run_name,
@@ -55,13 +65,26 @@ def main(
     epoch_steps,
     val,
     lr,
-    lr_factor,
+    lr_fact,
     lr_step,
     after,
+    kernels_gnn,
+    layers_gnn,
+    layers_rnn,
+    layers_mlp,
+    dim_gnn,
+    dim_rnn,
+    dim_emb,
+    dim_mlp,
+    prop_weight,
+    scale,
     n_proc,
 ):
     if run_name is None:  # take filename as run name if not specified
         run_name = os.path.basename(filename).split(".")[0]
+
+    _, t2i = tokenizer()
+    dim_atom, dim_bond = get_input_dims()
 
     # Write parameters to config file and define variables
     ini = configparser.ConfigParser()
@@ -73,26 +96,24 @@ def main(
         "batch_size": batch_size,
         "random": random,
         "n_proc": n_proc,
-        "epoch_steps": epoch_steps,
+        "epoch_steps": epoch_steps if random else "full",
         "frac_val": val,
         "lr": lr,
-        "lr_factor": lr_factor,
-        "lr_step": lr_step,
+        "lr_fact": lr_fact,
         "save_after": after,
+        "n_gnn_layers": layers_gnn,
+        "n_rnn_layers": layers_rnn,
+        "n_mlp_layers": layers_mlp,
+        "dim_gnn": dim_gnn,
+        "n_kernels": kernels_gnn,
+        "dim_embed": dim_emb,
+        "dim_rnn": dim_rnn,
+        "dim_mlp": dim_mlp,
+        "weight_props": prop_weight,
+        "scaled_props": scale,
     }
-    config["weight_props"] = w = 1.0
-    config["dim_gnn"] = dim_gnn = 512
-    config["n_gnn_layers"] = n_layers = 3
-    config["n_rnn_layers"] = n_rnn_layers = 2
-    config["n_mlp_layers"] = n_mlp_layers = 3
-    config["n_kernels"] = n_kernels = 3
-    config["dim_embed"] = dim_embed = 128
-    config["dim_rnn"] = dim_rnn = 512
-    config["dim_mlp"] = dim_mlp = 768
     config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
-    _, t2i = tokenizer()
     config["alphabet"] = alphabet = len(t2i)
-    dim_atom, dim_bond = get_input_dims()
 
     # Define paths
     path_model = f"models/{run_name}/"
@@ -101,30 +122,29 @@ def main(
     os.makedirs(path_loss, exist_ok=True)
     print("\nPaths (model, loss): ", path_model, path_loss)
 
-    # store config file for later sampling
+    # store config file for later sampling, retraining etc.
     with open(f"{path_model}config.ini", "w") as configfile:
         ini["CONFIG"] = config
         ini.write(configfile)
 
     # Create models
-    gnn = AttentiveFP2(
+    gnn = AttentiveFP(
         in_channels=dim_atom,
         hidden_channels=dim_gnn,
         out_channels=dim_rnn,
-        dropout=dropout,
         edge_dim=dim_bond,
-        num_layers=n_layers,
-        num_timesteps=n_kernels,
-        num_outputs=n_rnn_layers,
+        num_layers=layers_gnn,
+        num_timesteps=kernels_gnn,
+        dropout=dropout,
     ).to(DEVICE)
     rnn = LSTM(
         input_dim=alphabet,
-        embedding_dim=dim_embed,
+        embedding_dim=dim_emb,
         hidden_dim=dim_rnn,
-        layers=n_rnn_layers,
+        layers=layers_rnn,
         dropout=dropout,
     ).to(DEVICE)
-    mlp = FFNN(input_dim=dim_rnn, hidden_dim=dim_mlp, n_layers=n_mlp_layers, output_dim=n_props).to(DEVICE)
+    mlp = FFNN(input_dim=dim_rnn, hidden_dim=dim_mlp, n_layers=layers_mlp, output_dim=n_props).to(DEVICE)
 
     # Calculate model parameters
     gnn_parameters = filter(lambda p: p.requires_grad, gnn.parameters())
@@ -141,10 +161,17 @@ def main(
     # Define optimizer and loss criteria
     opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
     optimizer = torch.optim.Adam(opt_params, lr=lr)
+    schedule = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_fact)
     criterion1 = nn.CrossEntropyLoss(reduction="mean")
     criterion2 = nn.MSELoss(reduction="mean")
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_factor)
-    dataset = AttFPDataset(filename=filename, delimiter=delimiter, smls_col=smls_col, random=random, steps=epoch_steps)
+    dataset = AttFPDataset(
+        filename=filename,
+        delimiter=delimiter,
+        smls_col=smls_col,
+        random=random,
+        scaled_props=scale,
+        steps=int(epoch_steps + epoch_steps * val),
+    )
     train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
     valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
@@ -158,19 +185,31 @@ def main(
         print(f"\n---------- Epoch {epoch} ----------")
         time_start = time.time()
         l_s, l_p = train_one_epoch(
-            gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, w
+            gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, prop_weight
         )
         l_vs, l_vp = validate_one_epoch(
-            gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, (epoch + 1) * len(train_loader), t2i, w
+            gnn,
+            rnn,
+            mlp,
+            criterion1,
+            criterion2,
+            valid_loader,
+            writer,
+            (epoch + 1) * len(train_loader),
+            t2i,
+            prop_weight,
         )
-        scheduler.step()
         dur = time.time() - time_start
+        schedule.step()
+        last_lr = schedule.get_last_lr()[0]
+        writer.add_scalar("lr", last_lr, (epoch + 1) * len(train_loader))
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, "
-            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, "
+            + f"LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
-        nvl, _ = temperature_sampling(gnn, rnn, 0.1, np.random.choice(val_set.dataset.data, 1)[0], 10, 96, True)
+        _, _ = temperature_sampling(gnn, rnn, 0.5, np.random.choice(val_set.dataset.data, 1)[0], 10, 96, True)
 
         # save loss and models
         if epoch % after == 0:
@@ -195,6 +234,9 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
 
         # get GNN embedding as input for RNN (h0) and FFNN
         hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+        hn = torch.cat(
+            [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
+        )
 
         # start with initial embedding from graph and zeros as cell state
         cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
@@ -204,17 +246,15 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
         finish = (trg == t2i["$"]).nonzero()[-1, 0]
         for j in range(finish - 1):  # only loop until last end-token to prevent nan loss
             nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
-            loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
-            if torch.isnan(loss_fwd):  # if ignored tokens only, loss will be nan
-                loss_fwd = torch.zeros(1).to(DEVICE)
+            loss_fwd = torch.nan_to_num(criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :]), nan=1e-6)
             loss_mol = torch.add(loss_mol, loss_fwd)
         loss_per_token = loss_mol.cpu().detach().numpy()[0] / j
 
         # Properties loss
-        pred_props = mlp(torch.sum(hn, dim=0))
+        pred_props = mlp(hn[0])
         loss_props = torch.nan_to_num(criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))), nan=1e-6)
 
-        # combine losses, apply weight to have approx. same values
+        # combine losses, apply desired weight to property loss
         loss = loss_mol + torch.multiply(loss_props, w)
         loss.backward(retain_graph=True)
         optimizer.step()
@@ -248,6 +288,9 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
 
             # build hidden and cell value inputs
             hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+            hn = torch.cat(
+                [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
+            )
             cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
 
             # SMILES
@@ -260,10 +303,8 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             loss_smls += val_loss.cpu().detach().numpy()[0] / j
 
             # properties
-            pred_props = mlp(torch.sum(hn, dim=0))
+            pred_props = mlp(hn[0])
             loss_props += criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))).cpu().detach().numpy()
-
-    loss_props = torch.multiply(loss_props, w)  # multiply by same weight as in training
 
     # write tensorboard summary for this epoch and return validation loss
     writer.add_scalar("loss_val_smiles", loss_smls / steps, step)

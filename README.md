@@ -80,3 +80,8 @@ Options:
   -n, --n_jobs INTEGER      Number of cores to use for data loader.
   --help                    Show this message and exit.
 ```
+
+## Benchmark
+To benchmark the obtained representation, use `benchmark.py`. 
+It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) and optionally the [CDDD](https://github.com/jrwnter/cddd) repositories. 
+Please follow the installation instructions described in their READMEs.
