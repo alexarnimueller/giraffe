@@ -110,7 +110,7 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
             if mode == "regression":
                 model = SVR(C=5.0)
             elif mode == "classification":
-                model = SVC(5.0, probability=True)
+                model = SVC(C=5.0, probability=True)
             else:
                 raise ValueError(f"Mode has to be either classification or regression but was {mode}.")
 

@@ -106,7 +106,9 @@ class AttFPDataset(Dataset):
         if len(smils) > self.max_len:
             smils = self.data[idx]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
-        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
+        smils_pad[: len(smils) + 2] = (
+            [self.t2i["^"]] + [self.t2i[c] if c in self.t2i else self.t2i["*"] for c in smils] + [self.t2i["$"]]
+        )
 
         return Data(
             atoms=torch.FloatTensor(atom_feats),
