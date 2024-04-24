@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -207,3 +207,108 @@ class AttentiveFP(torch.nn.Module):
             out = self.mol_gru(h, out).relu_()
 
         return self.lin2(out)
+
+
+class AttentiveFP2(torch.nn.Module):
+    r"""The Attentive FP model for molecular representation learning from the
+    `"Pushing the Boundaries of Molecular Representation for Drug Discovery
+    with the Graph Attention Mechanism"
+    <https://pubs.acs.org/doi/10.1021/acs.jmedchem.9b00959>`_ paper, based on
+    graph attention mechanisms.
+    This variant creates two outputs, e.g. for a VAE setting or to train each
+    hidden state of the consecutive RNN separately.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        hidden_channels: int,
+        out_channels: int,
+        edge_dim: int,
+        num_layers: int,
+        num_timesteps: int,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.out_channels = out_channels
+        self.edge_dim = edge_dim
+        self.num_layers = num_layers
+        self.num_timesteps = num_timesteps
+        self.dropout = dropout
+
+        self.lin1 = Linear(in_channels, hidden_channels)
+        self.gate_conv = GATEConv(hidden_channels, hidden_channels, edge_dim, dropout)
+        self.gru = GRUCell(hidden_channels, hidden_channels)
+
+        self.atom_convs = torch.nn.ModuleList()
+        self.atom_grus = torch.nn.ModuleList()
+        for _ in range(num_layers - 1):
+            conv = GATConv(
+                hidden_channels, hidden_channels, dropout=dropout, add_self_loops=False, negative_slope=0.01
+            )
+            self.atom_convs.append(conv)
+            self.atom_grus.append(GRUCell(hidden_channels, hidden_channels))
+
+        self.mol_conv = GATConv(
+            hidden_channels, hidden_channels, dropout=dropout, add_self_loops=False, negative_slope=0.01
+        )
+        self.mol_conv.explain = False  # Cannot explain global pooling.
+        self.mol_gru = GRUCell(hidden_channels, hidden_channels)
+
+        self.lin_mu = Linear(hidden_channels, out_channels)
+        self.lin_var = Linear(hidden_channels, out_channels)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in [self.lin1, self.gate_conv, self.gru, self.mol_conv, self.mol_gru, self.lin_mu, self.lin_var]:
+            m.reset_parameters()
+        for conv, gru in zip(self.atom_convs, self.atom_grus):
+            conv.reset_parameters()
+            gru.reset_parameters()
+
+    def forward(self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor) -> Tensor:
+        # Atom Embedding
+        x = F.leaky_relu_(self.lin1(x))
+        h = F.elu_(self.gate_conv(x, edge_index, edge_attr))
+        h = F.dropout(h, p=self.dropout, training=self.training)
+        x = self.gru(h, x).relu_()
+
+        for conv, gru in zip(self.atom_convs, self.atom_grus):
+            h = conv(x, edge_index)
+            h = F.elu(h)
+            h = F.dropout(h, p=self.dropout, training=self.training)
+            x = gru(h, x).relu()
+
+        # Molecule Embedding
+        row = torch.arange(batch.size(0), device=batch.device)
+        edge_index = torch.stack([row, batch], dim=0)
+
+        out = global_add_pool(x, batch).relu_()
+        for _ in range(self.num_timesteps):
+            h = F.elu_(self.mol_conv((x, out), edge_index))
+            h = F.dropout(h, p=self.dropout, training=self.training)
+            out = self.mol_gru(h, out).relu_()
+
+        return self.lin_mu(out), self.lin_var(out)
+
+
+def reparameterize(mu: Tensor, logvar: Tensor) -> Tensor:
+    """
+    Reparameterization trick to sample from N(mu, var) from
+    N(0,1).
+    :param mu: (Tensor) Mean of the latent Gaussian [B x D]
+    :param logvar: (Tensor) Standard deviation of the latent Gaussian [B x D]
+    :return: (Tensor) [B x D]
+    """
+    std = torch.exp(0.5 * logvar)
+    eps = torch.randn_like(std)
+    return eps * std + mu
+
+
+def loss_function(loss_smls, loss_prop, mu, log_var, w_kld, w_prop) -> List[Tensor]:
+    """Computes the VAE loss."""
+    loss_kld = torch.mean(-0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0)
+    return loss_smls + loss_kld * w_kld + loss_prop * w_prop, loss_kld

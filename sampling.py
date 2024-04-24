@@ -12,7 +12,7 @@ from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
 
 from dataset import OneMol, tokenizer
-from model import LSTM, AttentiveFP
+from model import LSTM, AttentiveFP, reparameterize
 from utils import get_input_dims, is_valid_mol
 
 for level in RDLogger._levels:
@@ -28,7 +28,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-n", "--num", default=100, help="How many molecules to sample.")
 @click.option("-t", "--temp", default=0.6, help="Temperature to transform logits before for multinomial sampling.")
 @click.option("-l", "--maxlen", default=100, help="Maximum allowed SMILES string length.")
-def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
+@click.option("-v", "--vae", is_flag=True, help="Sampling from a VAE model with mu and std.")
+def main(checkpointfolder, epoch, smiles, num, temp, maxlen, vae):
     dim_atom, dim_bond = get_input_dims()
     ini = configparser.ConfigParser()
     ini.read(os.path.join(checkpointfolder, "config.ini"))
@@ -73,7 +74,9 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
 
     # Sample molecules
     print(f"Sampling {num} molecules:")
-    novels, probs_abs = temperature_sampling(gnn=gnn, rnn=rnn, temp=temp, smiles=smiles, num_mols=num, maxlen=maxlen)
+    novels, probs_abs = temperature_sampling(
+        gnn=gnn, rnn=rnn, temp=temp, smiles=smiles, num_mols=num, maxlen=maxlen, vae=vae
+    )
 
     # Save predictions
     df = pd.DataFrame({"SMILES": novels, "log-likelihood": probs_abs})
@@ -82,7 +85,7 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen):
     df_sorted.to_csv("output/sampled.csv", index=False)
 
 
-def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False):
+def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, vae=True, verbose=False):
     gnn.eval()
     rnn.eval()
     i2t, t2i = tokenizer()
@@ -107,7 +110,11 @@ def temperature_sampling(gnn, rnn, temp, smiles, num_mols, maxlen, verbose=False
         score = 0
         step, stop = 0, False
         with torch.no_grad():
-            hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+            if vae:
+                mu, var = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+                hn = reparameterize(mu, var)
+            else:
+                hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
             hn = torch.cat(
                 [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
             )
