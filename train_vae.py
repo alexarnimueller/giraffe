@@ -116,6 +116,7 @@ def main(
         "dim_mlp": dim_mlp,
         "weight_props": weight_prop,
         "weight_kld": weight_kld,
+        "kld_anneal_steps": anneal_steps,
         "scaled_props": scale,
     }
     config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
@@ -191,13 +192,7 @@ def main(
         print(f"\n---------- Epoch {epoch} ----------")
         time_start = time.time()
 
-        # KLD weight annealing
-        if (epoch - 1) * len(train_loader) < anneal_steps:
-            f_kld = (np.cos(np.pi * ((epoch - 1) * len(train_loader) / anneal_steps - 1)) + 1) / 2
-        else:
-            f_kld = 1.0
-
-        l_s, l_p, l_k = train_one_epoch(
+        l_s, l_p, l_k, fk = train_one_epoch(
             gnn,
             rnn,
             mlp,
@@ -209,7 +204,8 @@ def main(
             epoch,
             t2i,
             weight_prop,
-            f_kld * weight_kld,
+            weight_kld,
+            anneal_steps,
         )
         l_vs, l_vp, l_vk = validate_one_epoch(
             gnn,
@@ -222,7 +218,7 @@ def main(
             (epoch + 1) * len(train_loader),
             t2i,
             weight_prop,
-            f_kld * weight_kld,
+            weight_kld * fk,
         )
         dur = time.time() - time_start
         schedule.step()
@@ -231,7 +227,7 @@ def main(
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+            + f"Weight KLD: {fk*weight_kld:.6f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
         _, _ = temperature_sampling(
@@ -245,7 +241,9 @@ def main(
             torch.save(mlp.state_dict(), f"{path_model}ffnn_{epoch}.pt")
 
 
-def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, wp, wk):
+def train_one_epoch(
+    gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, wp, wk, asteps
+):
     gnn.train(True)
     rnn.train(True)
     mlp.train(True)
@@ -281,8 +279,11 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
         pred_props = mlp(hn[0])
         loss_props = torch.nan_to_num(criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))), nan=1e-6)
 
+        # KLD weight annealing
+        f_kld = min(1.0, (np.cos(np.pi * ((epoch - 1) * steps + step / asteps - 1)) + 1) / 2)
+
         # combine losses in VAE style
-        loss, loss_kld = loss_function(loss_mol, loss_props, mu, var, wk, wp)
+        loss, loss_kld = loss_function(loss_mol, loss_props, mu, var, wk * f_kld, wp)
         loss.backward(retain_graph=True)
         optimizer.step()
 
@@ -298,10 +299,11 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
         writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_kld", total_kld / step, (epoch - 1) * steps + step)
+        writer.add_scalar("kld_weight", wk * f_kld, (epoch - 1) * steps + step)
         if step % 500 == 0:
             print(f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}")
 
-    return (total_smls / step, total_props / step, total_kld / step)
+    return (total_smls / step, total_props / step, total_kld / step, f_kld)
 
 
 @torch.no_grad

@@ -12,7 +12,7 @@ from rdkit import Chem, RDLogger
 from rdkit.rdBase import DisableLog
 
 from dataset import OneMol, tokenizer
-from model import LSTM, AttentiveFP, reparameterize
+from model import LSTM, AttentiveFP, AttentiveFP2, reparameterize
 from utils import get_input_dims, is_valid_mol
 
 for level in RDLogger._levels:
@@ -57,15 +57,26 @@ def main(checkpointfolder, epoch, smiles, num, temp, maxlen, vae):
         layers=conf["n_rnn_layers"],
         dropout=conf["dropout"],
     )
-    gnn = AttentiveFP(
-        in_channels=dim_atom,
-        hidden_channels=conf["dim_gnn"],
-        out_channels=conf["dim_rnn"],
-        edge_dim=dim_bond,
-        num_layers=conf["n_gnn_layers"],
-        num_timesteps=conf["n_kernels"],
-        dropout=conf["dropout"],
-    )
+    if vae:
+        gnn = AttentiveFP2(
+            in_channels=dim_atom,
+            hidden_channels=conf["dim_gnn"],
+            out_channels=conf["dim_rnn"],
+            edge_dim=dim_bond,
+            num_layers=conf["n_gnn_layers"],
+            num_timesteps=conf["n_kernels"],
+            dropout=conf["dropout"],
+        )
+    else:
+        gnn = AttentiveFP(
+            in_channels=dim_atom,
+            hidden_channels=conf["dim_gnn"],
+            out_channels=conf["dim_rnn"],
+            edge_dim=dim_bond,
+            num_layers=conf["n_gnn_layers"],
+            num_timesteps=conf["n_kernels"],
+            dropout=conf["dropout"],
+        )
 
     gnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"atfp_{epoch}.pt"), map_location=DEVICE))
     rnn.load_state_dict(torch.load(os.path.join(checkpointfolder, f"lstm_{epoch}.pt"), map_location=DEVICE))

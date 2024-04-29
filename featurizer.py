@@ -19,7 +19,7 @@ from rdkit.Chem.rdMolDescriptors import GetMorganFingerprint
 from torch_geometric.loader import DataLoader
 
 from dataset import AttFPDataset, PropertyScaler
-from model import AttentiveFP
+from model import AttentiveFP, AttentiveFP2
 from utils import get_input_dims
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -1372,6 +1372,7 @@ class GiraffeFeaturizer:
     def __init__(
         self,
         checkpoint_path: str,
+        vae: bool = False,
         device: str = None,
     ) -> None:
         """
@@ -1384,6 +1385,7 @@ class GiraffeFeaturizer:
         self.model_dir = os.path.dirname(checkpoint_path)
         self.device = device or "cuda" if torch.cuda.is_available() else "cpu"
         self.dim_atom, self.dim_bond = get_input_dims()
+        self.vae = vae
 
         # read config file
         ini = configparser.ConfigParser()
@@ -1399,15 +1401,26 @@ class GiraffeFeaturizer:
                     conf[k] = v
 
         # define model structure
-        self.model = AttentiveFP(
-            in_channels=self.dim_atom,
-            hidden_channels=conf["dim_gnn"],
-            out_channels=conf["dim_rnn"],
-            dropout=conf["dropout"],
-            edge_dim=self.dim_bond,
-            num_layers=conf["n_gnn_layers"],
-            num_timesteps=conf["n_kernels"],
-        )
+        if vae:
+            self.model = AttentiveFP2(
+                in_channels=self.dim_atom,
+                hidden_channels=conf["dim_gnn"],
+                out_channels=conf["dim_rnn"],
+                dropout=conf["dropout"],
+                edge_dim=self.dim_bond,
+                num_layers=conf["n_gnn_layers"],
+                num_timesteps=conf["n_kernels"],
+            )
+        else:
+            self.model = AttentiveFP(
+                in_channels=self.dim_atom,
+                hidden_channels=conf["dim_gnn"],
+                out_channels=conf["dim_rnn"],
+                dropout=conf["dropout"],
+                edge_dim=self.dim_bond,
+                num_layers=conf["n_gnn_layers"],
+                num_timesteps=conf["n_kernels"],
+            )
 
         # load model
         logger.debug(f"Loading pretrained model from {checkpoint_path}")
@@ -1435,6 +1448,9 @@ class GiraffeFeaturizer:
         embs = torch.empty((0, self.model.out_channels), dtype=torch.float32).to(self.device)
         for g in loader:
             g = g.to(self.device)
-            h = self.model(g.atoms, g.edge_index, g.bonds, g.batch)
+            if self.vae:
+                h, _ = self.model(g.atoms, g.edge_index, g.bonds, g.batch)
+            else:
+                h = self.model(g.atoms, g.edge_index, g.bonds, g.batch)
             embs = torch.cat((embs, h))
         return embs.detach().cpu().numpy(), np.ones(len(embs))

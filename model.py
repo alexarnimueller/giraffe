@@ -296,9 +296,8 @@ class AttentiveFP2(torch.nn.Module):
 
 
 def reparameterize(mu: Tensor, logvar: Tensor) -> Tensor:
-    """
-    Reparameterization trick to sample from N(mu, var) from
-    N(0,1).
+    """Reparameterization trick to sample from N(mu, var) from N(0,1).
+
     :param mu: (Tensor) Mean of the latent Gaussian [B x D]
     :param logvar: (Tensor) Standard deviation of the latent Gaussian [B x D]
     :return: (Tensor) [B x D]
@@ -309,6 +308,8 @@ def reparameterize(mu: Tensor, logvar: Tensor) -> Tensor:
 
 
 def loss_function(loss_smls, loss_prop, mu, log_var, w_kld, w_prop) -> List[Tensor]:
-    """Computes the VAE loss."""
-    loss_kld = torch.mean(-0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0)
+    """Computes the VAE loss. Clamp KLD to 1e7 and replace possible NaNs."""
+    loss_kld = torch.nan_to_num(
+        torch.mean(-0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0).clamp(max=1e7), nan=1e7
+    )
     return loss_smls + loss_kld * w_kld + loss_prop * w_prop, loss_kld
