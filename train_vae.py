@@ -194,7 +194,8 @@ def main(
 
     # KLD weight annealing
     total_steps = epochs * (epoch_steps if random else len(train_loader))
-    anneal = anneal_cycle_sigmoid(total_steps, 0.0, 1.0, epochs // 2)
+    anneal = anneal_cycle_sigmoid(total_steps, n_cycle=epochs // 2, n_grow=5, ratio=0.75)
+
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")

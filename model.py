@@ -316,29 +316,33 @@ def loss_function(loss_smls, loss_prop, mu, log_var, w_kld, w_prop) -> List[Tens
     return loss_smls + loss_kld * w_kld + loss_prop * w_prop, loss_kld
 
 
-def anneal_cycle_linear(n_iter, start=0.0, stop=1.0, n_cycle=4, ratio=0.75):
+def anneal_cycle_linear(n_iter, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
     w = np.ones(n_iter) * stop
     period = n_iter / n_cycle
-    step = (stop - start) / (period * ratio)  # linear schedule
 
     for c in range(n_cycle):
+        stop_cur = min(stop, stop * (c+1) / (n_grow + 1)) if n_grow else stop
+        step = (stop_cur - start) / (period * ratio)  # linear schedule
         v, i = start, 0
-        while v <= stop and (int(i + c * period) < n_iter):
+        while v <= stop_cur and (int(i + c * period) < n_iter):
             w[int(i + c * period)] = v
             v += step
             i += 1
+        w[int(i + c * period):int((c+1) * period + 1)] = v
     return w
 
 
-def anneal_cycle_sigmoid(n_iter, start, stop, n_cycle=4, ratio=0.75):
+def anneal_cycle_sigmoid(n_iter, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
     w = np.ones(n_iter)
     period = n_iter / n_cycle
-    step = (stop - start) / (period * ratio)  # step is in [0,1]
 
     for c in range(n_cycle):
+        stop_cur = min(stop, stop * (c+1) / (n_grow + 1)) if n_grow else stop
+        step = (stop_cur - start) / (period * ratio)
         v, i = start, 0
-        while v <= stop:
-            w[int(i + c * period)] = 1.0 / (1.0 + np.exp(-(v * 12.0 - 6.0)))
+        while v <= stop_cur and (int(i + c * period) < n_iter):
+            w[int(i + c * period)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
             v += step
             i += 1
+        w[int(i + c * period):int((c+1) * period + 1)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
     return w
