@@ -43,7 +43,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
-@click.option("-es", "--epoch_steps", default=2000, help="If random, number of batches per epoch.")
+@click.option("-es", "--epoch_steps", default=1000, help="If random, number of batches per epoch.")
 @click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate.")
 @click.option("-lf", "--lr_fact", default=0.75, help="Learning rate decay factor.")
@@ -194,8 +194,7 @@ def main(
 
     # KLD weight annealing
     total_steps = epochs * (epoch_steps if random else len(train_loader))
-    anneal = anneal_cycle_sigmoid(total_steps, n_cycle=epochs // 2, n_grow=5, ratio=0.75)
-
+    anneal = anneal_cycle_sigmoid(total_steps, n_cycle=epochs // 2, n_grow=5, ratio=1.0)
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
@@ -289,7 +288,7 @@ def train_one_epoch(
         loss_props = torch.nan_to_num(criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))), nan=1e-6)
 
         # combine losses in VAE style
-        f_kld = asteps[(epoch - 1) * steps + step]
+        f_kld = asteps[(epoch - 1) * steps + step]  # annealing
         loss, loss_kld = loss_function(loss_mol, loss_props, mu, var, wk * f_kld, wp)
         loss.backward(retain_graph=True)
         optimizer.step()
