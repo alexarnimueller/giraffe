@@ -1,5 +1,6 @@
 from typing import List, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -76,7 +77,7 @@ class LSTM(nn.Module):
         features = self.norm_in(features)
         features, hiddens = self.lstm(features, hiddens)
         features = self.norm_out(features)
-        features = self.fcn(features).clamp(min=1e-8)
+        features = self.fcn(features).clamp(min=1e-6, max=1e6)
         return features, hiddens
 
 
@@ -313,3 +314,31 @@ def loss_function(loss_smls, loss_prop, mu, log_var, w_kld, w_prop) -> List[Tens
         torch.mean(-0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0).clamp(max=1e7), nan=1e7
     )
     return loss_smls + loss_kld * w_kld + loss_prop * w_prop, loss_kld
+
+
+def anneal_cycle_linear(n_iter, start=0.0, stop=1.0, n_cycle=4, ratio=0.75):
+    w = np.ones(n_iter) * stop
+    period = n_iter / n_cycle
+    step = (stop - start) / (period * ratio)  # linear schedule
+
+    for c in range(n_cycle):
+        v, i = start, 0
+        while v <= stop and (int(i + c * period) < n_iter):
+            w[int(i + c * period)] = v
+            v += step
+            i += 1
+    return w
+
+
+def anneal_cycle_sigmoid(n_iter, start, stop, n_cycle=4, ratio=0.75):
+    w = np.ones(n_iter)
+    period = n_iter / n_cycle
+    step = (stop - start) / (period * ratio)  # step is in [0,1]
+
+    for c in range(n_cycle):
+        v, i = start, 0
+        while v <= stop:
+            w[int(i + c * period)] = 1.0 / (1.0 + np.exp(-(v * 12.0 - 6.0)))
+            v += step
+            i += 1
+    return w

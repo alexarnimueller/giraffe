@@ -17,7 +17,14 @@ from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
 from dataset import AttFPDataset, tokenizer
-from model import FFNN, LSTM, AttentiveFP2, loss_function, reparameterize
+from model import (
+    FFNN,
+    LSTM,
+    AttentiveFP2,
+    anneal_cycle_sigmoid,
+    loss_function,
+    reparameterize,
+)
 from sampling import temperature_sampling
 from utils import get_input_dims
 
@@ -36,7 +43,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
-@click.option("-es", "--epoch_steps", default=512000, help="If random, number of steps per epoch.")
+@click.option("-es", "--epoch_steps", default=2000, help="If random, number of batches per epoch.")
 @click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate.")
 @click.option("-lf", "--lr_fact", default=0.75, help="Learning rate decay factor.")
@@ -50,9 +57,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-dr", "--dim_rnn", default=512, help="Hidden dimension of RNN layers")
 @click.option("-de", "--dim_emb", default=512, help="Dimension of RNN token embedding")
 @click.option("-dm", "--dim_mlp", default=512, help="Hidden dimension of MLP layers")
-@click.option("-wp", "--weight_prop", default=1.0, help="Factor for weighting property loss in VAE loss")
+@click.option("-wp", "--weight_prop", default=5.0, help="Factor for weighting property loss in VAE loss")
 @click.option("-wp", "--weight_kld", default=0.25, help="Factor for weighting KL divergence loss in VAE loss")
-@click.option("-as", "--anneal_steps", default=20000, help="Number of steps (batches) to anneal KLD weight")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
 def main(
@@ -80,7 +86,6 @@ def main(
     dim_mlp,
     weight_prop,
     weight_kld,
-    anneal_steps,
     scale,
     n_proc,
 ):
@@ -116,7 +121,6 @@ def main(
         "dim_mlp": dim_mlp,
         "weight_props": weight_prop,
         "weight_kld": weight_kld,
-        "kld_anneal_steps": anneal_steps,
         "scaled_props": scale,
     }
     config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
@@ -177,7 +181,7 @@ def main(
         smls_col=smls_col,
         random=random,
         scaled_props=scale,
-        steps=int(epoch_steps * (1 + val)),
+        steps=int(epoch_steps * batch_size * (1 + val)) if random else 0,
     )
     train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
@@ -187,6 +191,10 @@ def main(
         f"Using {len(train_set)}{' random' if random else ''} molecules for training "
         + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
     )
+
+    # KLD weight annealing
+    total_steps = epochs * (epoch_steps if random else len(train_loader))
+    anneal = anneal_cycle_sigmoid(total_steps, 0.0, 1.0, epochs // 2)
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
@@ -205,7 +213,7 @@ def main(
             t2i,
             weight_prop,
             weight_kld,
-            anneal_steps,
+            anneal,
         )
         l_vs, l_vp, l_vk = validate_one_epoch(
             gnn,
@@ -215,7 +223,7 @@ def main(
             criterion2,
             valid_loader,
             writer,
-            (epoch + 1) * len(train_loader),
+            epoch * len(train_loader),
             t2i,
             weight_prop,
             weight_kld * fk,
@@ -231,7 +239,7 @@ def main(
         )
 
         _, _ = temperature_sampling(
-            gnn, rnn, 0.5, np.random.choice(val_set.dataset.data, 1)[0], 10, 96, verbose=True, vae=True
+            gnn, rnn, 0.5, np.random.choice(val_set.dataset.data, 10), 10, dataset.max_len, verbose=True, vae=True
         )
 
         # save loss and models
@@ -279,10 +287,8 @@ def train_one_epoch(
         pred_props = mlp(hn[0])
         loss_props = torch.nan_to_num(criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))), nan=1e-6)
 
-        # KLD weight annealing
-        f_kld = min(1.0, (np.cos(np.pi * ((epoch - 1) * steps + step / asteps - 1)) + 1) / 2)
-
         # combine losses in VAE style
+        f_kld = asteps[(epoch - 1) * steps + step]
         loss, loss_kld = loss_function(loss_mol, loss_props, mu, var, wk * f_kld, wp)
         loss.backward(retain_graph=True)
         optimizer.step()

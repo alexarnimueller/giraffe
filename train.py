@@ -36,7 +36,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
-@click.option("-es", "--epoch_steps", default=256000, help="If random, number of steps per epoch.")
+@click.option("-es", "--epoch_steps", default=1000, help="If random, number of batches per epoch.")
 @click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate.")
 @click.option("-lf", "--lr_fact", default=0.75, help="Learning rate decay factor.")
@@ -170,7 +170,7 @@ def main(
         smls_col=smls_col,
         random=random,
         scaled_props=scale,
-        steps=int(epoch_steps + epoch_steps * val),
+        steps=int(epoch_steps * batch_size * (1 + val)),
     )
     train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
