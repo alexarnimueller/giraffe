@@ -50,12 +50,15 @@ def average_results(json_results: dict):
 
 
 @click.command()
-@click.option("-d", "--directory", default="logs/benchmark", help="Directory containing benchmark result files")
-def main(directory):
+@click.argument("directory")
+@click.option("-m", "--metrics", default="AUROC,RMSE", help="Comma-separated list of metrics to keep")
+@click.option("-r", "--round", default=3, help="Number of decimal places to round to")
+def main(directory, metrics, round):
     json_results = combine_json_files(directory)
     rslt = average_results(json_results)
     for k, v in rslt.items():
-        v.to_csv(os.path.join(directory, f"{k}_summary.csv"))
+        v = v[[c for c in v.columns if any([m in c for m in metrics.split(",")])]].round(round)
+        v.to_csv(os.path.join(directory, f"{k}_summary.csv"), sep=";")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-dr", "--dim_rnn", default=512, help="Hidden dimension of RNN layers")
 @click.option("-de", "--dim_emb", default=512, help="Dimension of RNN token embedding")
 @click.option("-dm", "--dim_mlp", default=512, help="Hidden dimension of MLP layers")
-@click.option("-wp", "--prop_weight", default=0.1, help="Factor for weighting property loss vs. SMILES")
+@click.option("-wp", "--prop_weight", default=10, help="Factor for weighting property loss vs. SMILES")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
 def main(
@@ -111,6 +111,7 @@ def main(
         "dim_mlp": dim_mlp,
         "weight_props": prop_weight,
         "scaled_props": scale,
+        "vae": False,
     }
     config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
     config["alphabet"] = alphabet = len(t2i)
@@ -202,14 +203,26 @@ def main(
         dur = time.time() - time_start
         schedule.step()
         last_lr = schedule.get_last_lr()[0]
-        writer.add_scalar("lr", last_lr, (epoch + 1) * len(train_loader))
+        writer.add_scalar("lr", last_lr, epoch * len(train_loader))
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, "
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, "
             + f"LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
-        _, _ = temperature_sampling(gnn, rnn, 0.5, np.random.choice(val_set.dataset.data, 1)[0], 10, 96, True)
+        # sampling
+        n_sample = 100
+        _, _, n_valid = temperature_sampling(
+            gnn,
+            rnn,
+            0.5,
+            np.random.choice(val_set.dataset.data, n_sample),
+            n_sample,
+            dataset.max_len,
+            verbose=True,
+            vae=False,
+        )
+        writer.add_scalar("valid", n_valid / n_sample, epoch * len(train_loader))
 
         # save loss and models
         if epoch % after == 0:

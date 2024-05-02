@@ -321,14 +321,14 @@ def anneal_cycle_linear(n_iter, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=
     period = n_iter / n_cycle
 
     for c in range(n_cycle):
-        stop_cur = min(stop, stop * (c+1) / (n_grow + 1)) if n_grow else stop
+        stop_cur = min(stop, stop * (c + 1) / (n_grow + 1)) if n_grow else stop
         step = (stop_cur - start) / (period * ratio)  # linear schedule
         v, i = start, 0
         while v <= stop_cur and (int(i + c * period) < n_iter):
             w[int(i + c * period)] = v
             v += step
             i += 1
-        w[int(i + c * period):int((c+1) * period + 1)] = v
+        w[int(i + c * period) : int((c + 1) * period + 1)] = v
     return w
 
 
@@ -337,12 +337,12 @@ def anneal_cycle_sigmoid(n_iter, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio
     period = n_iter / n_cycle
 
     for c in range(n_cycle):
-        stop_cur = min(stop, stop * (c+1) / (n_grow + 1)) if n_grow else stop
+        stop_cur = min(stop, stop * (c + 1) / (n_grow + 1)) if n_grow else stop
         step = (stop_cur - start) / (period * ratio)
         v, i = start, 0
         while v <= stop_cur and (int(i + c * period) < n_iter):
             w[int(i + c * period)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
             v += step
             i += 1
-        w[int(i + c * period):int((c+1) * period + 1)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
+        w[int(i + c * period) : int((c + 1) * period + 1)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
     return w

@@ -86,7 +86,12 @@ To benchmark the obtained representation, use `benchmark.py`.
 It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) and optionally the [CDDD](https://github.com/jrwnter/cddd) repositories. 
 Please follow the installation instructions described in their READMEs.
 
+## KLD Annealing
+Emplyoing a growing sigmoidal cyclical annealing schedule:
 
+<img src="paper/figures/annealing_cyclical.png" alt="annealing" width="400"/>
+
+Adapted from https://github.com/haofuml/cyclical_annealing
 
 ### References
 
