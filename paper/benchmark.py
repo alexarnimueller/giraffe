@@ -1,3 +1,6 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+
 """"
 Adapted from: https://github.com/BenevolentAI/MolBERT/blob/main/scripts/run_qsar_test_molbert.py
           and https://github.com/jrwnter/cddd/blob/master/cddd/evaluation.py
@@ -30,7 +33,7 @@ from sklearn.svm import SVC, SVR
 
 from featurizer import GiraffeFeaturizer, MorganFPFeaturizer, PhysChemFeaturizer
 
-GIRAFFE_MODEL_DIR = "models/irci_new/atfp_20.pt"
+GIRAFFE_MODEL_DIR = "models/pubchem/atfp_45.pt"
 MOLBERT_MODEL_DIR = "/path/to/checkpoint.ckpt"
 CDDD_MODEL_DIR = "models/cddd_model"
 

@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
 Molecule preprocessing functions
 """
@@ -247,7 +248,8 @@ def main(filename, smls_col, delimiter, n_proc):
         data = preprocess_single_core(filename, smls_col, delimiter)
     else:
         data = preprocess_df(filename, smls_col, delimiter, n_proc=n_proc)
-    create_properties(data, f"{filename[:-4]}_properties.pkl.gz")
+    # create_properties(data, f"{filename[:-4]}_properties.pkl.gz")
+    data = data.drop_duplicates()
     data.drop(columns="MOL").to_csv(f"{filename[:-4]}_proc.txt", sep="\t", index=False)
     print("preprocessing completed!")
     # print(f"saved data to {filename[:-4]}_proc.txt and std scaler to {filename[:-4]}_scaler.bin")

@@ -1,4 +1,6 @@
+#! /usr/bin/env python
 # -*- coding: utf-8 -*-
+
 import json
 import os
 from collections import defaultdict
@@ -49,16 +51,38 @@ def average_results(json_results: dict):
     return rslt
 
 
+def get_dfs(directory, metrics, round):
+    json_results = combine_json_files(directory)
+    rslt = average_results(json_results)
+    out = {}
+    for k, v in rslt.items():
+        out[k] = v[[c for c in v.columns if any([m in c for m in metrics.split(",")])]].round(round)
+    return out
+
+
 @click.command()
 @click.argument("directory")
 @click.option("-m", "--metrics", default="AUROC,RMSE", help="Comma-separated list of metrics to keep")
 @click.option("-r", "--round", default=3, help="Number of decimal places to round to")
 def main(directory, metrics, round):
-    json_results = combine_json_files(directory)
-    rslt = average_results(json_results)
-    for k, v in rslt.items():
-        v = v[[c for c in v.columns if any([m in c for m in metrics.split(",")])]].round(round)
-        v.to_csv(os.path.join(directory, f"{k}_summary.csv"), sep=";")
+    # read all benchmarks and build dictionary
+    rslt = {m: {} for m in metrics.split(",")}
+    for path in os.listdir(directory):
+        if os.path.isdir(os.path.join(directory, path)):
+            d = get_dfs(os.path.join(directory, path), metrics, round)
+            for n, df in d.items():
+                if all([c in df.columns for c in [f"{m}_avg" for m in metrics.split(",")]]):
+                    df = df.sort_values(by=[f"{m}_avg" for m in metrics.split(",")]).T
+                    for m in metrics.split(","):
+                        m_out = {}
+                        for i, (a, s) in enumerate(zip(df.loc[f"{m}_avg"], df.loc[f"{m}_std"])):
+                            if not pd.isna(a):
+                                m_out[df.columns[i]] = f"{a} +/- {s}"
+                        rslt[m][f"{path}_{n}"] = m_out
+    # save aggregated results to csv files
+    for m, v in rslt.items():
+        df = pd.DataFrame().from_dict(v, orient="index").sort_index()
+        df.to_csv(os.path.join(directory, f"{m}.csv"), sep=";", index=True, header=True)
 
 
 if __name__ == "__main__":

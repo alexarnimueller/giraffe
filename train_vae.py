@@ -9,14 +9,13 @@ import click
 import numpy as np
 import torch
 import torch.nn as nn
-from rdkit import Chem, RDLogger
-from rdkit.Chem.Descriptors import CalcMolDescriptors
+from rdkit import RDLogger
 from rdkit.rdBase import DisableLog
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
-from dataset import AttFPDataset, tokenizer
+from dataset import AttFPDataset, PropertyScaler, tokenizer
 from model import (
     FFNN,
     LSTM,
@@ -39,7 +38,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-e", "--epochs", default=200, help="Nr. of epochs to train.")
+@click.option("-e", "--epochs", default=160, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
@@ -59,6 +58,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-dm", "--dim_mlp", default=512, help="Hidden dimension of MLP layers")
 @click.option("-wp", "--weight_prop", default=10.0, help="Factor for weighting property loss in VAE loss")
 @click.option("-wp", "--weight_kld", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option("-ac", "--anneal_cycle", default=4, help="Number of epochs for one KLD annealing cycle")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
 def main(
@@ -86,6 +86,7 @@ def main(
     dim_mlp,
     weight_prop,
     weight_kld,
+    anneal_cycle,
     scale,
     n_proc,
 ):
@@ -121,10 +122,11 @@ def main(
         "dim_mlp": dim_mlp,
         "weight_props": weight_prop,
         "weight_kld": weight_kld,
+        "anneal_cycle": anneal_cycle,
         "scaled_props": scale,
         "vae": True,
     }
-    config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
+    config["n_props"] = n_props = len(PropertyScaler().descriptors)
     config["alphabet"] = alphabet = len(t2i)
 
     # Define paths
@@ -195,7 +197,7 @@ def main(
 
     # KLD weight annealing
     total_steps = epochs * (epoch_steps if random else len(train_loader))
-    anneal = anneal_cycle_linear(total_steps, n_cycle=10, n_grow=4, ratio=0.75)
+    anneal = anneal_cycle_linear(total_steps, n_cycle=epochs // anneal_cycle, n_grow=4, ratio=0.75)
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
@@ -240,7 +242,7 @@ def main(
         )
         # sampling
         n_sample, temp = 100, 0.5
-        _, _, n_valid = temperature_sampling(
+        valids, _, _, _, _ = temperature_sampling(
             gnn,
             rnn,
             temp,
@@ -250,7 +252,7 @@ def main(
             verbose=True,
             vae=True,
         )
-        writer.add_scalar("valid", n_valid / n_sample, epoch * len(train_loader))
+        writer.add_scalar("valid", len(valids) / n_sample, epoch * len(train_loader))
 
         # save loss and models
         if epoch % after == 0:

@@ -212,7 +212,7 @@ def main(
 
         # sampling
         n_sample = 100
-        _, _, n_valid = temperature_sampling(
+        valids, _, _, _, _ = temperature_sampling(
             gnn,
             rnn,
             0.5,
@@ -222,7 +222,7 @@ def main(
             verbose=True,
             vae=False,
         )
-        writer.add_scalar("valid", n_valid / n_sample, epoch * len(train_loader))
+        writer.add_scalar("valid", len(valids) / n_sample, epoch * len(train_loader))
 
         # save loss and models
         if epoch % after == 0:

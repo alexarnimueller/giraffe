@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-
 from multiprocessing import Process, Queue, cpu_count
 
 import numpy as np
@@ -40,12 +39,13 @@ def is_valid_mol(smiles, return_smiles=False):
     :param return_smiles: {bool} whether the checked valid SMILES string should be returned
     :return: {bool} validity
     """
+    smiles = smiles.replace("^", "").replace("$", "").strip()
     try:
-        m = CanonSmiles(smiles.replace("^", "").replace("$", "").strip(), 1)
+        m = MolFromSmiles(smiles, 1)
     except Exception:
         m = None
     if return_smiles:
-        return m is not None, m
+        return m is not None, smiles
     else:
         return m is not None
 

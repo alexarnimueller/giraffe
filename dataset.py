@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 import json
+import re
 from typing import List, Union
 
 import numpy as np
@@ -8,7 +10,7 @@ import pandas as pd
 import torch
 from rdkit import RDLogger
 from rdkit.Chem import AddHs, MolFromSmiles, MolToSmiles, RemoveHs
-from rdkit.Chem.Descriptors import CalcMolDescriptors
+from rdkit.Chem.Descriptors import descList
 from rdkit.rdBase import DisableLog
 from torch_geometric.data import Data, Dataset
 
@@ -147,21 +149,38 @@ def attentive_fp_features(mol):
 
 
 class PropertyScaler(object):
-    def __init__(self, descriptors: Union[List, None] = None, do_scale: bool = True):
-        self.descriptors = descriptors
+    def __init__(self, descriptors: Union[List, str, None] = None, do_scale: bool = True):
+        if isinstance(descriptors, str):
+            self.descriptors = {}
+            desc_regex = re.compile(descriptors)
+            for descriptor, func in descList:
+                if desc_regex.match(descriptor):
+                    self.descriptors[descriptor] = func
+        elif isinstance(descriptors, list):
+            self.descriptors = {descriptor: func for descriptor, func in descList if descriptor in descriptors}
+        else:
+            self.descriptors = {descriptor: func for descriptor, func in descList}
+
         self.load_min_max_values()
         self.do_scale = do_scale
 
     def load_min_max_values(self):
         d = json.loads(open("data/property_scales.json").read())
-
-        if self.descriptors is not None:
-            d = {k: v for k, v in d.items() if k in self.descriptors}
-        else:
-            self.descriptors = list(d.keys())
+        d = {k: v for k, v in d.items() if k in self.descriptors.keys()}
 
         self.min_val = {k: v[0] for k, v in d.items()}
         self.max_val = {k: v[1] for k, v in d.items()}
+
+    def _calc(self, mol, missing_val=0):
+        rslt = {}
+        for descriptor, func in self.descriptors.items():
+            rslt[descriptor] = list()
+            try:
+                val = func(mol)
+            except Exception:
+                val = missing_val
+            rslt[descriptor] = val
+        return rslt
 
     def scale(self, x, n):
         try:
@@ -170,7 +189,7 @@ class PropertyScaler(object):
             raise KeyError(x, n, self.min_val, self.max_val, self.descriptors)
 
     def transform(self, mol):
-        props = {k: v for k, v in CalcMolDescriptors(mol, missingVal=0).items() if k in self.descriptors}
+        props = self._calc(mol)
         if self.do_scale:
             return [self.scale(x, n) for n, x in props.items()]
         else:

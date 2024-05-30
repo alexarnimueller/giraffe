@@ -1,3 +1,6 @@
+#! /usr/bin/env python
+# -*- coding: utf-8
+
 from typing import List, Optional
 
 import numpy as np

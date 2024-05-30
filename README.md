@@ -10,7 +10,7 @@ This repository contains training, embedding and inference code for the "Graph I
 ### Training
 Training a new model on a file with SMILES strings can be achieved as follows:
 ```bash
-python train.py -n chembl data/chembl24_10uM_20-100_proc.txt
+python train.py -n pubchem data/pubchem_canonical_10M_l128.smi
 ```
 To get all the options, call `python train.py --help`:
 ```
@@ -38,14 +38,14 @@ Options:
 After training, a config file containing all the used options will be saved in the checkpoints folder. This file is used for later sampling and embedding tasks.
 
 ### Sampling
-To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `140` of the model `irci`), run the following:
+To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `45` of the model `pubchem`), run the following:
 ```bash
-python sampling.py -e 140 -t 0.6 -l 96 -n 100 models/irci
+python sampling.py -e 45 -t 0.6 -l 96 -n 100 models/pubchem
 ```
 
-Conditional sampling around a SMILES string of interest using epoch `140` of the pretrained model `irci`:
+Conditional sampling around a SMILES string of interest using epoch `45` of the pretrained model `pubchem`:
 ```bash
-python sampling.py -e 140 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" models/irci
+python sampling.py -e 45 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" models/pubchem
 ```
 The sampled SMILES strings are stored in `output/sampled.csv` together with the negative log likelihood score.
 
@@ -65,7 +65,7 @@ Options:
 ### Embedding
 To embed SMILES strings using the pretrained GNN, proceed as follows:
 ```bash
-python embedding.py -f models/irci -e 140 data/1k.txt output/test/embeddings.csv
+python embedding.py -f models/pubchem -e 45 data/1k.txt output/test/embeddings.csv
 ```
 To get all available options, call `python embedding.py --help`:
 ```

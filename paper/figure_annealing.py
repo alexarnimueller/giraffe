@@ -1,15 +1,18 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import click
 import matplotlib.pyplot as plt
 
 from model import anneal_cycle_linear, anneal_cycle_sigmoid
 
-WDIR = "/home/muela115/Code/Generative/GraphGiraffe"
+WDIR = "~/Code/Generative/GraphGiraffe"
 
 
 @click.command()
-@click.option("-s", "--steps", default=200000)
+@click.option("-s", "--steps", default=50000)
 @click.option("-g", "--grow", default=4)
-@click.option("-c", "--cycle", default=10)
+@click.option("-c", "--cycle", default=25)
 @click.option("-r", "--ratio", default=0.75)
 def main(steps, grow, cycle, ratio):
     beta_lin = anneal_cycle_linear(steps, n_grow=grow, n_cycle=cycle, ratio=ratio)

@@ -16,7 +16,6 @@ from rdkit.Chem import (
     Descriptors3D,
     MACCSkeys,
 )
-from rdkit.Chem.Descriptors import CalcMolDescriptors
 from rdkit.Chem.Fingerprints.FingerprintMols import FingerprintMol
 from rdkit.Chem.Pharm2D import Generate
 from rdkit.Chem.Pharm2D.SigFactory import SigFactory
@@ -141,21 +140,11 @@ def numpy_atompair(mols):
     return _rdk2numpy([MACCSkeys.GenMACCSKeys(m) for m in mols if m])
 
 
-def scale_properties(data: np.array, checkpoint: str = None, save_to: str = None):
-    if checkpoint:
-        sclr = load(checkpoint)
-    else:
-        sclr = StandardScaler()
-        sclr = sclr.fit(data)
-        if save_to:
-            dump(sclr, save_to, compress=True)
-    return sclr.transform(data)
-
-
 def rdkit_descirptors(
     mols,
     regex="(MolWt)|(MolLogP)|(TPSA)|(.*Count)|(Num.*)|(FractionCSP3)|(.*VSA.*)|(Topliss.*)"
     "|(Chi.*)|(.*Density.*)|(MQNs)|(Autocorr2D)|(fr_.*)",
+    missing_val=0.0,
     verbose=False,
 ):
     """calculates a set of RDKit descriptors for given molecules (RDKit) ``mols``
@@ -164,15 +153,27 @@ def rdkit_descirptors(
     :param regex: {str} regular expression to match RDKit functions
     :return: {pandas DataFrame} descriptor names and values
     """
-    # create results dictionary with descriptors as keys and append list of values for all mols
+    # filter for descriptors of interest
+    if regex:
+        desclist = []
+        desc_regex = re.compile(regex)
+        for descriptor, func in Descriptors.descList:
+            if desc_regex.match(descriptor):
+                desclist.append((descriptor, func))
+    else:
+        desclist = Descriptors.descList
+
+    # calculate descriptors
     rslt = dict()
-    desc_regex = re.compile(regex)
-    for descriptor, func in Descriptors.descList:
-        if desc_regex.match(descriptor):
-            rslt[descriptor] = list()
-            for mol in tqdm(mols, desc=descriptor, disable=not verbose):
-                rslt[descriptor].append(func(mol))
-    return pd.DataFrame(rslt)
+    for descriptor, func in desclist:
+        rslt[descriptor] = list()
+        for mol in tqdm(mols, desc=descriptor, disable=not verbose):
+            try:
+                val = func(mol)
+            except Exception:
+                val = missing_val
+            rslt[descriptor].append(val)
+    return rslt
 
 
 def rdkit_3d_descirptors(

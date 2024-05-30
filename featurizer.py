@@ -1,3 +1,6 @@
+#! /usr/bin/env python
+# -*- coding: utf-8
+
 """Molecule featurization classes.
 
 Adapted from: https://github.com/BenevolentAI/MolBERT/blob/main/molbert/utils/featurizer/molfeaturizer.py
