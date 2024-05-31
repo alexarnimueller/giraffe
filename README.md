@@ -3,12 +3,15 @@
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
 
 <p float="left">
-  <img src="data/logo2.png" width="200"/>
-  <img src="data/logo.png" width="200"/>
-  <img src="data/logo3.png" width="200"/>
+  <img src="paper/figures/logo2.png" width="200"/>
+  <img src="paper/figures/logo.png" width="200"/>
+  <img src="paper/figures/logo3.png" width="200"/>
 </p>
 
-This repository contains training, embedding and inference code for the "Graph Infused Representations Adapted For Future molecule Enhancements" (Giraffe) model used to create meaningful molecular representations for small molecules.
+This repository contains training, embedding and sampling code for the "Graph Infused Representation Assembled From a multi-Faceted variational auto-Encoder" (Giraffe) model used to create meaningful molecular representations for small molecules.
+
+An overview of the architecture and training logic of Giraffe looks as follows:
+<img src="paper/figures/net.png" width="600"/>
 
 ## Quick start
 ### Training
