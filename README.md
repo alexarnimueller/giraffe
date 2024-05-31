@@ -11,6 +11,7 @@
 This repository contains training, embedding and sampling code for the "Graph Infused Representation Assembled From a multi-Faceted variational auto-Encoder" (Giraffe) model used to create meaningful molecular representations for small molecules.
 
 An overview of the architecture and training logic of Giraffe looks as follows:
+
 <img src="paper/figures/net.png" width="600"/>
 
 ## Quick start
