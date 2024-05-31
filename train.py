@@ -16,7 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
-from dataset import AttFPDataset, tokenizer
+from dataset import AttFPDataset, AttFPTableDataset, load_from_fname, tokenizer
 from model import (
     FFNN,
     LSTM,
@@ -44,6 +44,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
+@click.option("-p", "--props", default=None, help="Comma-seperated list of descriptors to use. All, if omitted")
 @click.option("-es", "--epoch_steps", default=1000, help="If random, number of batches per epoch.")
 @click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate.")
@@ -67,7 +68,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-ar", "--anneal_ratio", default=0.75, help="Fraction of annealing vs. constant KLD weight")
 @click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
-@click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
+@click.option("-np", "--n_proc", default=6, help="Number of CPU processes to use")
 def main(
     filename,
     run_name,
@@ -77,6 +78,7 @@ def main(
     dropout,
     batch_size,
     random,
+    props,
     epoch_steps,
     val,
     lr,
@@ -121,6 +123,7 @@ def main(
         "dropout": dropout,
         "batch_size": batch_size,
         "random": random,
+        "porps": props if props else "full",
         "n_proc": n_proc,
         "epoch_steps": epoch_steps if random else "full",
         "frac_val": val,
@@ -144,7 +147,6 @@ def main(
         "scaled_props": scale,
         "vae": vae,
     }
-    config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
     config["alphabet"] = alphabet = len(t2i)
 
     # Define paths
@@ -153,6 +155,24 @@ def main(
     os.makedirs(path_model, exist_ok=True)
     os.makedirs(path_loss, exist_ok=True)
     print("\nPaths (model, loss): ", path_model, path_loss)
+
+    # load data to determine if there are properties
+    print("\nReading SMILES dataset...")
+    content = load_from_fname(filename, smls_col=smls_col, delimiter=delimiter)
+    DatasetClass = AttFPDataset if content.columns.tolist() == [smls_col] else AttFPTableDataset
+    dataset = DatasetClass(
+        filename=filename,
+        delimiter=delimiter,
+        smls_col=smls_col,
+        props=props,
+        random=random,
+        scaled_props=scale,
+        steps=int(epoch_steps * batch_size * (1 + val)),
+    )
+    config["n_props"] = n_props = dataset.n_props
+    train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
+    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
 
     # store config file for later sampling, retraining etc.
     with open(f"{path_model}config.ini", "w") as configfile:
@@ -197,17 +217,6 @@ def main(
     schedule = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_fact)
     criterion1 = nn.CrossEntropyLoss(reduction="mean")
     criterion2 = nn.MSELoss(reduction="mean")
-    dataset = AttFPDataset(
-        filename=filename,
-        delimiter=delimiter,
-        smls_col=smls_col,
-        random=random,
-        scaled_props=scale,
-        steps=int(epoch_steps * batch_size * (1 + val)),
-    )
-    train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
-    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
     writer = SummaryWriter(path_loss)
     print(
         f"Using {len(train_set)}{' random' if random else ''} molecules for training "
@@ -265,7 +274,7 @@ def main(
             gnn,
             rnn,
             temp,
-            np.random.choice(val_set.dataset.data, n_sample),
+            np.random.choice(val_set.dataset.data[smls_col], n_sample),
             n_sample,
             dataset.max_len,
             verbose=True,
@@ -324,9 +333,11 @@ def train_one_epoch(
             loss_fwd = torch.nan_to_num(criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :]), nan=1e-6)
             loss_mol = torch.add(loss_mol, loss_fwd)
 
-        # Properties loss
+        # Properties loss (mask unavailable properties)
         pred_props = mlp(hn[0])
-        loss_props = torch.nan_to_num(criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))), nan=1e-6)
+        pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
+        props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(-1, pred_props.size(1))
+        loss_props = torch.nan_to_num(criterion2(pred_props, props), nan=1e-6)
 
         if vae:
             # combine losses in VAE style
@@ -394,7 +405,9 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             # loss
             # properties
             pred_props = mlp(hn[0])
-            loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
+            pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
+            props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(-1, pred_props.size(1))
+            loss_props = criterion2(pred_props, props)
             if vae:  # vae
                 loss, loss_kld = loss_function(mol_loss, total_props, mu, var, wk, wp)
                 total_kld += loss_kld.cpu().detach().numpy()

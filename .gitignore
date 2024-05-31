@@ -3,6 +3,7 @@ models/
 logs/
 output/
 benchmarks/
+data/*prop*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

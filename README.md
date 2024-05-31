@@ -64,6 +64,9 @@ Options:
 
 After training, a config file containing all the used options will be saved in the checkpoints folder. This file is used for later sampling and embedding tasks.
 
+#### Calculated vs. Custom Properties
+If the input file only contains SMILES strings (single column, with or without header), Giraffe uses all calculable RDKit properties (scaled from 0 to 1). If the input file contains other numerical columns next to the SMILES, it will use those values as properties. The user has to ensure the properties are scaled to a reasonable range.
+
 ### Sampling
 To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `45` of the model `pubchem`), run the following:
 ```bash

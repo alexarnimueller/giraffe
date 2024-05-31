@@ -53,6 +53,7 @@ class OneMol(Dataset):
 
 
 class AttFPDataset(Dataset):
+    """Dataset class for SMILES and on-the-fly calculated properties"""
 
     def __init__(
         self,
@@ -70,35 +71,14 @@ class AttFPDataset(Dataset):
         self.i2t, self.t2i = tokenizer()
         self.random = random
         self.embed = embed
+        self.smls_col = smls_col
         self.scaled_props = scaled_props
         self.scaler = PropertyScaler(props, do_scale=scaled_props)
+        self.n_props = len(self.scaler.descriptors)
 
         # Load smiles dataset
-        if isinstance(filename, str):
-            print("\nReading SMILES dataset...")
-            self.data = pd.read_csv(filename, delimiter=delimiter)
-            if smls_col not in self.data.columns and len(self.data.columns) == 1:
-                self.data = pd.concat(
-                    (
-                        pd.DataFrame({"SMILES": self.data.columns.tolist()}),
-                        self.data.rename(columns={self.data.columns[0]: "SMILES"}),
-                    )
-                )
-            else:
-                self.data = self.data.rename(columns={smls_col: "SMILES"})
-
-        elif isinstance(filename, list) or isinstance(filename, np.ndarray):
-            self.data = pd.DataFrame({"SMILES": filename})
-        elif isinstance(filename, pd.Series):
-            self.data = filename.to_frame()
-            self.data.columns = ["SMILES"]
-        else:
-            raise NotImplementedError(
-                f"Can only understand str, list/array or Series as filename! {type(filename)} provided"
-            )
-
-        self.max_len = self.data.SMILES.apply(lambda x: len(x)).max()
-        self.data = self.data.SMILES.values.flatten()
+        self.data = load_from_fname(filename, smls_col, delimiter)
+        self.max_len = self.data[smls_col].apply(lambda x: len(x)).max()
         if isinstance(filename, str):
             print(f"Loaded {len(self.data)} SMILES")
             print("Max Length: ", self.max_len)
@@ -110,7 +90,7 @@ class AttFPDataset(Dataset):
         if self.random:  # randomly sample any molecule
             idx = np.random.randint(len(self.data))
 
-        mol = MolFromSmiles(self.data[idx])
+        mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
 
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
@@ -122,10 +102,12 @@ class AttFPDataset(Dataset):
                 num_nodes=num_nodes,
             )
 
-        props = np.nan_to_num(self.scaler.transform(mol), 0.0)  # get scaled properties between 0 and 1
+        props = self.scaler.transform(mol)  # get scaled properties between 0 and 1
+        mask = np.isfinite(props).astype(float)  # to exclude potential nan / inf values
+        props = np.nan_to_num(props, nan=0.0, posinf=1.0, neginf=0.0)
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
         if len(smils) > self.max_len:
-            smils = self.data[idx]
+            smils = self.data.iloc[idx][[self.smls_col]]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
         smils_pad[: len(smils) + 2] = (
             [self.t2i["^"]] + [self.t2i[c] if c in self.t2i else self.t2i["*"] for c in smils] + [self.t2i["$"]]
@@ -137,6 +119,7 @@ class AttFPDataset(Dataset):
             edge_index=torch.LongTensor(edge_index),
             trg_smi=torch.LongTensor(smils_pad.reshape(1, -1)),
             props=torch.FloatTensor(props),
+            prop_mask=torch.FloatTensor(mask),
             num_nodes=num_nodes,
         )
 
@@ -150,6 +133,110 @@ class AttFPDataset(Dataset):
 
     def get(self, idx: int) -> Data:
         return self.__getitem__(idx)
+
+
+class AttFPTableDataset(Dataset):
+    """Dataset class for SMILES and properties in a table format"""
+
+    def __init__(
+        self,
+        filename,
+        delimiter="\t",
+        smls_col="SMILES",
+        props=None,
+        random=False,
+        scaled_props=False,
+        steps=128000,
+    ):
+        super(AttFPTableDataset, self).__init__()
+        # tokenizer
+        self.i2t, self.t2i = tokenizer()
+        self.random = random
+        self.smls_col = smls_col
+        _ = scaled_props
+
+        # Load tabular dataset
+        self.data = load_from_fname(filename, smls_col, delimiter)
+        self.max_len = self.data[smls_col].apply(lambda x: len(x)).max()
+        self.props = props if props else [c for c in self.data.columns if c != smls_col]
+        self.data[self.props] = self.data[self.props].astype(float)
+        self.n_props = len(self.props)
+
+        if isinstance(filename, str):
+            print(f"Loaded {len(self.data)} SMILES with {self.n_props} properties")
+            print("Max Length: ", self.max_len)
+
+        # if random, set loops
+        if random:
+            self.loop = list(range(0, steps))
+        else:
+            self.loop = list(range(0, len(self.data)))
+
+    def __getitem__(self, idx):
+        if self.random:  # randomly sample any molecule
+            idx = np.random.randint(len(self.data))
+
+        mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
+        num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
+
+        props = np.array(self.data.iloc[idx][self.props].values, dtype=float)
+        mask = np.isfinite(props).astype(float)  # to exclude potential nan / inf values
+        props = np.nan_to_num(props, nan=0.0, posinf=1.0, neginf=0.0)
+
+        smils = MolToSmiles(RemoveHs(mol), doRandom=True)
+        if len(smils) > self.max_len:
+            smils = self.data.iloc[idx][self.smls_col]
+        smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
+        smils_pad[: len(smils) + 2] = (
+            [self.t2i["^"]] + [self.t2i[c] if c in self.t2i else self.t2i["*"] for c in smils] + [self.t2i["$"]]
+        )
+
+        return Data(
+            atoms=torch.FloatTensor(atom_feats),
+            bonds=torch.FloatTensor(bond_feats),
+            edge_index=torch.LongTensor(edge_index),
+            trg_smi=torch.LongTensor(smils_pad.reshape(1, -1)),
+            props=torch.FloatTensor(props),
+            prop_mask=torch.FloatTensor(mask),
+            num_nodes=num_nodes,
+        )
+
+    def __len__(self):
+        if self.random:
+            return len(self.loop)
+        return len(self.data)
+
+    def len(self) -> int:
+        return self.__len__()
+
+    def get(self, idx: int) -> Data:
+        return self.__getitem__(idx)
+
+
+def load_from_fname(filename, smls_col, delimiter):
+    # Load smiles dataset
+    if isinstance(filename, str):
+        data = pd.read_csv(filename, delimiter=delimiter)
+        data.dropna(how="all", axis=1, inplace=True)
+        if smls_col not in data.columns and len(data.columns) == 1:
+            data = pd.concat(
+                (
+                    pd.DataFrame({smls_col: data.columns.tolist()}),
+                    data.rename(columns={data.columns[0]: smls_col}),
+                )
+            )
+    elif isinstance(filename, list) or isinstance(filename, np.ndarray):
+        data = pd.DataFrame({smls_col: filename})
+    elif isinstance(filename, pd.Series):
+        data = filename.to_frame()
+        data.columns = [smls_col]
+    elif isinstance(filename, pd.DataFrame):
+        data = filename.copy()
+    else:
+        raise NotImplementedError(
+            f"Can only understand str, list/array, DataFrame or Series as filename! {type(filename)} provided"
+        )
+    return data
 
 
 def attentive_fp_features(mol):
