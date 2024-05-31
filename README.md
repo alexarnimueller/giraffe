@@ -158,11 +158,6 @@ Options:
   --help                       Show this message and exit.
 ```
 
-## Benchmark
-To benchmark the obtained representation, use `benchmark.py`. 
-It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) repository, and optionally on the [CDDD](https://github.com/jrwnter/cddd) repository. 
-Please follow the installation instructions described in their READMEs.
-
 ## KLD Annealing
 In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's an example of how the schedule looks for either linear or sigmoid cyclical annealing with the parameters `anneal_cycle=5`, `anneal_grow=5`, `anneal_ratio=0.75` and `epoch_steps=1000`:
 
@@ -170,5 +165,10 @@ In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's
 
 Adapted from https://github.com/haofuml/cyclical_annealing
 
-## Citing
+## Benchmark
+To benchmark the obtained representation, use `benchmark.py`. 
+It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) repository, and optionally on the [CDDD](https://github.com/jrwnter/cddd) repository. 
+Please follow the installation instructions described in their READMEs.
+
+## Cite
 to be added
