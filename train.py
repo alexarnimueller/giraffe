@@ -17,7 +17,15 @@ from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
 from dataset import AttFPDataset, tokenizer
-from model import FFNN, LSTM, AttentiveFP
+from model import (
+    FFNN,
+    LSTM,
+    AttentiveFP,
+    AttentiveFP2,
+    anneal_cycle_linear,
+    loss_function,
+    reparameterize,
+)
 from sampling import temperature_sampling
 from utils import get_input_dims
 
@@ -32,7 +40,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-e", "--epochs", default=200, help="Nr. of epochs to train.")
+@click.option("-e", "--epochs", default=160, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
@@ -42,6 +50,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-lf", "--lr_fact", default=0.75, help="Learning rate decay factor.")
 @click.option("-ls", "--lr_step", default=10, help="LR Step decay after nr. of epochs.")
 @click.option("-a", "--after", default=5, help="Epoch steps to save model.")
+@click.option("-t", "--temp", default=0.5, help="Temperature to use during SMILES sampling.")
+@click.option("-ns", "--n_sample", default=100, help="Nr. SMILES to sample after each trainin epoch.")
 @click.option("-nk", "--kernels_gnn", default=2, help="Nr. GNN kernels")
 @click.option("-ng", "--layers_gnn", default=2, help="Nr. GNN layers")
 @click.option("-nr", "--layers_rnn", default=2, help="Nr. RNN layers")
@@ -50,7 +60,10 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-dr", "--dim_rnn", default=512, help="Hidden dimension of RNN layers")
 @click.option("-de", "--dim_emb", default=512, help="Dimension of RNN token embedding")
 @click.option("-dm", "--dim_mlp", default=512, help="Hidden dimension of MLP layers")
-@click.option("-wp", "--prop_weight", default=10, help="Factor for weighting property loss vs. SMILES")
+@click.option("-wp", "--weight_prop", default=10.0, help="Factor for weighting property loss in VAE loss")
+@click.option("-wp", "--weight_kld", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option("-ac", "--anneal_cycle", default=4, help="Number of epochs for one KLD annealing cycle")
+@click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
 def main(
@@ -68,6 +81,8 @@ def main(
     lr_fact,
     lr_step,
     after,
+    temp,
+    n_sample,
     kernels_gnn,
     layers_gnn,
     layers_rnn,
@@ -76,7 +91,10 @@ def main(
     dim_rnn,
     dim_emb,
     dim_mlp,
-    prop_weight,
+    weight_prop,
+    weight_kld,
+    anneal_cycle,
+    vae,
     scale,
     n_proc,
 ):
@@ -87,6 +105,8 @@ def main(
     dim_atom, dim_bond = get_input_dims()
 
     # Write parameters to config file and define variables
+    weight_kld = weight_kld if vae else 0.0
+    anneal_cycle = anneal_cycle if vae else 0
     ini = configparser.ConfigParser()
     config = {
         "filename": filename,
@@ -100,6 +120,7 @@ def main(
         "frac_val": val,
         "lr": lr,
         "lr_fact": lr_fact,
+        "lr_step": lr_step,
         "save_after": after,
         "n_gnn_layers": layers_gnn,
         "n_rnn_layers": layers_rnn,
@@ -109,9 +130,11 @@ def main(
         "dim_embed": dim_emb,
         "dim_rnn": dim_rnn,
         "dim_mlp": dim_mlp,
-        "weight_props": prop_weight,
+        "weight_props": weight_prop,
+        "weight_kld": weight_kld,
+        "anneal_cycle": anneal_cycle,
         "scaled_props": scale,
-        "vae": False,
+        "vae": vae,
     }
     config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
     config["alphabet"] = alphabet = len(t2i)
@@ -129,15 +152,26 @@ def main(
         ini.write(configfile)
 
     # Create models
-    gnn = AttentiveFP(
-        in_channels=dim_atom,
-        hidden_channels=dim_gnn,
-        out_channels=dim_rnn,
-        edge_dim=dim_bond,
-        num_layers=layers_gnn,
-        num_timesteps=kernels_gnn,
-        dropout=dropout,
-    ).to(DEVICE)
+    if vae:
+        gnn = AttentiveFP2(
+            in_channels=dim_atom,
+            hidden_channels=dim_gnn,
+            out_channels=dim_rnn,
+            edge_dim=dim_bond,
+            num_layers=layers_gnn,
+            num_timesteps=kernels_gnn,
+            dropout=dropout,
+        ).to(DEVICE)
+    else:
+        gnn = AttentiveFP(
+            in_channels=dim_atom,
+            hidden_channels=dim_gnn,
+            out_channels=dim_rnn,
+            edge_dim=dim_bond,
+            num_layers=layers_gnn,
+            num_timesteps=kernels_gnn,
+            dropout=dropout,
+        ).to(DEVICE)
     rnn = LSTM(
         input_dim=alphabet,
         embedding_dim=dim_emb,
@@ -182,13 +216,32 @@ def main(
         + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
     )
 
+    # KLD weight annealing
+    anneal = []
+    if vae:
+        total_steps = epochs * (epoch_steps if random else len(train_loader))
+        anneal = anneal_cycle_linear(total_steps, n_cycle=epochs // anneal_cycle, n_grow=4, ratio=0.75)
+
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
         time_start = time.time()
-        l_s, l_p = train_one_epoch(
-            gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, prop_weight
+        l_s, l_p, l_k, fk = train_one_epoch(
+            gnn,
+            rnn,
+            mlp,
+            optimizer,
+            criterion1,
+            criterion2,
+            train_loader,
+            writer,
+            epoch,
+            t2i,
+            weight_prop,
+            weight_kld,
+            anneal,
+            vae,
         )
-        l_vs, l_vp = validate_one_epoch(
+        l_vs, l_vp, l_vk = validate_one_epoch(
             gnn,
             rnn,
             mlp,
@@ -196,31 +249,31 @@ def main(
             criterion2,
             valid_loader,
             writer,
-            (epoch + 1) * len(train_loader),
+            epoch * len(train_loader),
             t2i,
-            prop_weight,
+            weight_prop,
+            weight_kld * fk,
+            vae,
         )
         dur = time.time() - time_start
         schedule.step()
         last_lr = schedule.get_last_lr()[0]
         writer.add_scalar("lr", last_lr, epoch * len(train_loader))
         print(
-            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, "
-            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, "
-            + f"LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
+            + f"Weight KLD: {fk*weight_kld:.6f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
-
         # sampling
-        n_sample = 100
-        valids, _, _, _, _ = temperature_sampling(
+        valids, _, _, _, _, _ = temperature_sampling(
             gnn,
             rnn,
-            0.5,
+            temp,
             np.random.choice(val_set.dataset.data, n_sample),
             n_sample,
             dataset.max_len,
             verbose=True,
-            vae=False,
+            vae=vae,
         )
         writer.add_scalar("valid", len(valids) / n_sample, epoch * len(train_loader))
 
@@ -231,12 +284,14 @@ def main(
             torch.save(mlp.state_dict(), f"{path_model}ffnn_{epoch}.pt")
 
 
-def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, w):
+def train_one_epoch(
+    gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, wp, wk, asteps, vae
+):
     gnn.train(True)
     rnn.train(True)
     mlp.train(True)
     steps = len(train_loader)
-    total_smls, total_props, step = 0, 0, 0
+    total_loss, total_smls, total_props, total_kld, f_kld, step = 0, 0, 0, 0, 0, 0
     for g in tqdm(train_loader, desc="Training"):
         optimizer.zero_grad()
 
@@ -246,7 +301,11 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
         trg = torch.transpose(trg, 0, 1)
 
         # get GNN embedding as input for RNN (h0) and FFNN
-        hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+        if vae:
+            mu, var = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+            hn = reparameterize(mu, var)
+        else:
+            hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
         hn = torch.cat(
             [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
         )
@@ -261,37 +320,48 @@ def train_one_epoch(gnn, rnn, mlp, optimizer, criterion1, criterion2, train_load
             nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
             loss_fwd = torch.nan_to_num(criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :]), nan=1e-6)
             loss_mol = torch.add(loss_mol, loss_fwd)
-        loss_per_token = loss_mol.cpu().detach().numpy()[0] / j
 
         # Properties loss
         pred_props = mlp(hn[0])
         loss_props = torch.nan_to_num(criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))), nan=1e-6)
 
-        # combine losses, apply desired weight to property loss
-        loss = loss_mol + torch.multiply(loss_props, w)
+        if vae:
+            # combine losses in VAE style
+            f_kld = asteps[(epoch - 1) * steps + step]  # annealing
+            loss, loss_kld = loss_function(loss_mol, loss_props, mu, var, wk * f_kld, wp)
+            total_kld += loss_kld.cpu().detach().numpy()
+        else:
+            # combine losses, apply desired weight to property loss
+            loss = loss_mol + torch.multiply(loss_props, wp)
         loss.backward(retain_graph=True)
         optimizer.step()
 
-        total_smls += loss_per_token
+        # calculate total losses
+        total_loss += loss.cpu().detach().numpy()
+        total_smls += loss_mol.cpu().detach().numpy()[0] / j
         total_props += loss_props.cpu().detach().numpy()
 
         # write tensorboard summary
         step += 1
+        writer.add_scalar("loss_train_total", total_smls / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
+        if vae:
+            writer.add_scalar("loss_train_kld", total_kld / step, (epoch - 1) * steps + step)
+            writer.add_scalar("kld_weight", wk * f_kld, (epoch - 1) * steps + step)
         if step % 500 == 0:
             print(f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}")
 
-    return (total_smls / step, total_props / step)
+    return (total_smls / step, total_props / step, total_kld / step, f_kld)
 
 
 @torch.no_grad
-def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i, w):
+def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i, wp, wk, vae):
     gnn.train(False)
     rnn.train(False)
     mlp.train(False)
     steps = len(valid_loader)
-    loss_smls, loss_props = 0, 0
+    total_total, total_smls, total_props, total_kld = 0, 0, 0, 0
     with torch.no_grad():
         for g in tqdm(valid_loader, desc="Validation"):
             # graph and target smiles
@@ -300,29 +370,46 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             trg = torch.transpose(trg, 0, 1)
 
             # build hidden and cell value inputs
-            hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+            if vae:
+                mu, var = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+                hn = reparameterize(mu, var)
+            else:
+                hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
             hn = torch.cat(
                 [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
             )
             cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
 
             # SMILES
-            val_loss = torch.zeros(1).to(DEVICE)
+            mol_loss = torch.zeros(1).to(DEVICE)
             finish = (trg == t2i["$"]).nonzero()[-1, 0]
             for j in range(finish - 1):  # only loop until last end-token to prevent nan loss
                 nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
                 loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
-                val_loss = torch.add(val_loss, loss_fwd)
-            loss_smls += val_loss.cpu().detach().numpy()[0] / j
+                mol_loss = torch.add(mol_loss, loss_fwd)
 
+            # loss
             # properties
             pred_props = mlp(hn[0])
-            loss_props += criterion2(pred_props, g.props.reshape(-1, pred_props.size(1))).cpu().detach().numpy()
+            loss_props = criterion2(pred_props, g.props.reshape(-1, pred_props.size(1)))
+            if vae:  # vae
+                loss, loss_kld = loss_function(mol_loss, total_props, mu, var, wk, wp)
+                total_kld += loss_kld.cpu().detach().numpy()
+            else:  # just weighted
+                loss = mol_loss + torch.multiply(loss_props, wp)
+
+            # calculate total losses
+            total_total += loss.cpu().detach().numpy()
+            total_props += loss_props.cpu().detach().numpy()
+            total_smls += mol_loss.cpu().detach().numpy()[0] / j
 
     # write tensorboard summary for this epoch and return validation loss
-    writer.add_scalar("loss_val_smiles", loss_smls / steps, step)
-    writer.add_scalar("loss_val_props", loss_props / steps, step)
-    return (loss_smls / steps, loss_props / steps)
+    writer.add_scalar("loss_val_total", total_total / steps, step)
+    writer.add_scalar("loss_val_smiles", total_smls / steps, step)
+    writer.add_scalar("loss_val_props", total_props / steps, step)
+    if vae:
+        writer.add_scalar("loss_val_kld", total_kld / steps, step)
+    return (total_smls / steps, total_props / steps, total_kld / steps)
 
 
 if __name__ == "__main__":

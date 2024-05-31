@@ -14,29 +14,48 @@ This repository contains training, embedding and inference code for the "Graph I
 ### Training
 Training a new model on a file with SMILES strings can be achieved as follows:
 ```bash
-python train.py -n pubchem data/pubchem_canonical_10M_l128.smi
+python train.py data/pubchem_canonical_10M_l128.smi
 ```
+The call above will train a VAE. To train a traditional autoencoder, use the `--no-vae` flag.
+
 To get all the options, call `python train.py --help`:
 ```
 Usage: train.py [OPTIONS] FILENAME
 
 Options:
-  -n, --run_name TEXT         Name of the run for saving (filename if
-                              omitted).
-  -d, --delimiter TEXT        Column delimiter of input file.
-  -c, --smls_col TEXT         Name of column that contains SMILES.
-  -e, --epochs INTEGER        Nr. of epochs to train.
-  -o, --dropout FLOAT         Dropout fraction.
-  -b, --batch_size INTEGER    Number of molecules per batch.
-  -r, --random                Randomly sample molecules in each training step.
-  -es, --epoch_steps INTEGER  If random, number of steps per epoch.
-  -v, --val FLOAT             Fraction of the data to use for validation.
-  -l, --lr FLOAT              Learning rate.
-  -f, --lr_factor FLOAT       Factor for learning rate decay.
-  -s, --lr_step INTEGER       Step size for learning rate decay.
-  -a, --after INTEGER         Epoch steps to save model.
-  -p, --n_proc INTEGER        Number of CPU processes to use.
-  --help                      Show this message and exit.
+  -n, --run_name TEXT          Name of the run for saving (filename if
+                               omitted).
+  -d, --delimiter TEXT         Column delimiter of input file.
+  -c, --smls_col TEXT          Name of column that contains SMILES.
+  -e, --epochs INTEGER         Nr. of epochs to train.
+  -o, --dropout FLOAT          Dropout fraction.
+  -b, --batch_size INTEGER     Number of molecules per batch.
+  -r, --random                 Randomly sample molecules in each training
+                               step.
+  -es, --epoch_steps INTEGER   If random, number of batches per epoch.
+  -v, --val FLOAT              Fraction of the data to use for validation.
+  -l, --lr FLOAT               Learning rate.
+  -lf, --lr_fact FLOAT         Learning rate decay factor.
+  -ls, --lr_step INTEGER       LR Step decay after nr. of epochs.
+  -a, --after INTEGER          Epoch steps to save model.
+  -t, --temp FLOAT             Temperature to use during SMILES sampling.
+  -ns, --n_sample INTEGER      Nr. SMILES to sample after each trainin epoch.
+  -nk, --kernels_gnn INTEGER   Nr. GNN kernels
+  -ng, --layers_gnn INTEGER    Nr. GNN layers
+  -nr, --layers_rnn INTEGER    Nr. RNN layers
+  -nm, --layers_mlp INTEGER    Nr. MLP layers
+  -dg, --dim_gnn INTEGER       Hidden dimension of GNN layers
+  -dr, --dim_rnn INTEGER       Hidden dimension of RNN layers
+  -de, --dim_emb INTEGER       Dimension of RNN token embedding
+  -dm, --dim_mlp INTEGER       Hidden dimension of MLP layers
+  -wp, --weight_prop FLOAT     Factor for weighting property loss in VAE loss
+  -wp, --weight_kld FLOAT      Factor for weighting KL divergence loss in VAE
+                               loss
+  -ac, --anneal_cycle INTEGER  Number of epochs for one KLD annealing cycle
+  --vae / --no-vae             Whether to train a VAE or only AE
+  --scale / --no-scale         Whether to scale all properties from 0 to 1
+  -p, --n_proc INTEGER         Number of CPU processes to use
+  --help                       Show this message and exit.
 ```
 
 After training, a config file containing all the used options will be saved in the checkpoints folder. This file is used for later sampling and embedding tasks.
