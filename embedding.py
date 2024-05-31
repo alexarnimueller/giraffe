@@ -12,7 +12,7 @@ from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
 from dataset import AttFPDataset
-from model import AttentiveFP2
+from model import AttentiveFP, AttentiveFP2
 from utils import get_input_dims
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -49,6 +49,8 @@ def embed_file(input_file, delimiter, smls_col, folder, epoch, batch_size, n_mol
             except ValueError:
                 conf[k] = v
 
+    vae = conf["vae"] == "True"
+
     # Load data
     print(f"\nReading SMILES from {input_file}")
     data = pd.read_csv(input_file, delimiter=delimiter)
@@ -58,7 +60,8 @@ def embed_file(input_file, delimiter, smls_col, folder, epoch, batch_size, n_mol
     del data
 
     # Define GNN
-    gnn = AttentiveFP2(
+    GNN_Class = AttentiveFP2 if vae else AttentiveFP
+    gnn = GNN_Class(
         in_channels=dim_atom,
         hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
@@ -73,21 +76,24 @@ def embed_file(input_file, delimiter, smls_col, folder, epoch, batch_size, n_mol
     gnn = gnn.to(DEVICE)
 
     # Embed molecules
-    embs = smiles_embedding(gnn=gnn, smiles=smiles, batch_size=batch_size, n_jobs=n_jobs)
+    embs = smiles_embedding(gnn=gnn, smiles=smiles, batch_size=batch_size, n_jobs=n_jobs, vae=vae)
 
     # Concatenate and save embeddings
     return smiles, embs
 
 
 @torch.no_grad
-def smiles_embedding(gnn, smiles, batch_size, n_jobs):
+def smiles_embedding(gnn, smiles, batch_size, n_jobs, vae):
     gnn.eval()
-    dataset = AttFPDataset(smiles)
+    dataset = AttFPDataset(smiles, embed=True)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=n_jobs)
     embs = torch.empty((0, gnn.out_channels), dtype=torch.float32).to(DEVICE)
     for g in tqdm(loader, desc="Embedding"):
         g = g.to(DEVICE)
-        h, _ = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+        if vae:
+            h, _ = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+        else:
+            h = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
         embs = torch.cat((embs, h))
     return embs.detach().cpu().numpy()
 

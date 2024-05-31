@@ -16,9 +16,9 @@ from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 
 from dataset import AttFPDataset, tokenizer
-from model import FFNN, LSTM, AttentiveFP2, anneal_cycle_sigmoid
+from model import FFNN, LSTM, AttentiveFP, AttentiveFP2, anneal_cycle_linear
 from sampling import temperature_sampling
-from train_vae import train_one_epoch, validate_one_epoch
+from train import train_one_epoch, validate_one_epoch
 from utils import get_input_dims
 
 for level in RDLogger._levels:
@@ -29,12 +29,12 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 @click.command()
 @click.argument("filename")
-@click.argument("checkpoint")
-@click.option("-e", "--epoch_load", help="Epoch of models to load.")
+@click.option("-c", "--checkpoint", default="models/pub_vae_lin_final", help="Checkpoint folder.")
+@click.option("-e", "--epoch_load", default=45, help="Epoch of models to load.")
 @click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
-@click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-et", "--epochs", default=50, help="Nr. of epochs to train.")
+@click.option("-sc", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
+@click.option("-ne", "--epochs", default=50, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
@@ -44,8 +44,14 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-lf", "--lr_fact", default=0.75, help="Learning rate decay factor.")
 @click.option("-ls", "--lr_step", default=5, help="LR Step decay after nr. of epochs.")
 @click.option("-a", "--after", default=5, help="Epoch steps to save model.")
+@click.option("-t", "--temp", default=0.5, help="Temperature to use during SMILES sampling.")
+@click.option("-ns", "--n_sample", default=100, help="Nr. SMILES to sample after each trainin epoch.")
 @click.option("-wp", "--weight_prop", default=5.0, help="Factor for weighting property loss in VAE loss")
 @click.option("-wp", "--weight_kld", default=0.25, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option("-ac", "--anneal_cycle", default=4, help="Number of epochs for one KLD annealing cycle")
+@click.option("-ag", "--anneal_grow", default=4, help="Number of annealing cycles with increasing values")
+@click.option("-ar", "--anneal_ratio", default=0.75, help="Fraction of annealing vs. constant KLD weight")
+@click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
 def main(
@@ -65,8 +71,14 @@ def main(
     lr_fact,
     lr_step,
     after,
+    temp,
+    n_sample,
     weight_prop,
     weight_kld,
+    anneal_cycle,
+    anneal_grow,
+    anneal_ratio,
+    vae,
     scale,
     n_proc,
 ):
@@ -76,7 +88,7 @@ def main(
     _, t2i = tokenizer()
     dim_atom, dim_bond = get_input_dims()
 
-    # load config from trained model
+    # load model architecture config from trained model
     ini = configparser.ConfigParser()
     ini.read(os.path.join(checkpoint, "config.ini"))
     conf = {}
@@ -91,10 +103,16 @@ def main(
     del ini
 
     # Write parameters to config file and define variables
+    weight_kld = weight_kld if vae else 0.0
+    anneal_cycle = anneal_cycle if vae else 0
+    anneal_grow = anneal_grow if vae else 0.0
+    anneal_ratio = anneal_ratio if vae else 0
     ini = configparser.ConfigParser()
     config = {
         "filename": filename,
         "run_name": run_name,
+        "finetune": True,
+        "pretrained": checkpoint,
         "epochs": epochs,
         "dropout": dropout,
         "batch_size": batch_size,
@@ -116,7 +134,9 @@ def main(
         "dim_mlp": conf["dim_mlp"],
         "weight_props": weight_prop,
         "weight_kld": weight_kld,
+        "anneal_cycle": anneal_cycle,
         "scaled_props": scale,
+        "vae": vae,
     }
     config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
     config["alphabet"] = conf["alphabet"]
@@ -134,7 +154,8 @@ def main(
         ini.write(configfile)
 
     # Create models and load weights
-    gnn = AttentiveFP2(
+    GNN_Class = AttentiveFP2 if vae else AttentiveFP
+    gnn = GNN_Class(
         in_channels=dim_atom,
         hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
@@ -185,8 +206,12 @@ def main(
     )
 
     # KLD weight annealing
-    total_steps = epochs * (epoch_steps if random else len(train_loader))
-    anneal = anneal_cycle_sigmoid(total_steps, n_cycle=epochs // 2, n_grow=5, ratio=1.0)
+    anneal = []
+    if vae:
+        total_steps = epochs * (epoch_steps if random else len(train_loader))
+        anneal = anneal_cycle_linear(
+            total_steps, n_cycle=epochs // anneal_cycle, n_grow=anneal_grow, ratio=anneal_ratio
+        )
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
@@ -206,6 +231,7 @@ def main(
             weight_prop,
             weight_kld,
             anneal,
+            vae,
         )
         l_vs, l_vp, l_vk = validate_one_epoch(
             gnn,
@@ -219,6 +245,7 @@ def main(
             t2i,
             weight_prop,
             weight_kld * fk,
+            vae,
         )
         dur = time.time() - time_start
         schedule.step()
@@ -230,8 +257,23 @@ def main(
             + f"Weight KLD: {fk*weight_kld:.6f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
-        _, _ = temperature_sampling(
-            gnn, rnn, 0.5, np.random.choice(val_set.dataset.data, 10), 10, dataset.max_len, verbose=True, vae=True
+        valids, _, _, _, _, _ = temperature_sampling(
+            gnn,
+            rnn,
+            temp,
+            np.random.choice(val_set.dataset.data, n_sample),
+            n_sample,
+            dataset.max_len,
+            verbose=True,
+            vae=vae,
+        )
+        valid = len(valids) / n_sample
+        writer.add_scalar("valid", valid, epoch * len(train_loader))
+
+        print(
+            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
+            + f"Weight KLD: {fk*weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
         )
 
         # save loss and models

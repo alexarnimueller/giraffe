@@ -29,12 +29,11 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-n", "--num", default=100, help="How many molecules to sample.")
 @click.option("-t", "--temp", default=0.5, help="Temperature to transform logits before for multinomial sampling.")
 @click.option("-l", "--maxlen", default=128, help="Maximum allowed SMILES string length.")
-@click.option("-o", "--out", default="sampled", help="Output file-basename")
-@click.option("-v", "--vae", is_flag=True, help="Sampling from a VAE model with mu and std.")
+@click.option("-o", "--out", default="output/sampled.csv", help="Output filename")
 @click.option("-i", "--interpolate", is_flag=True, help="Linear interpolation between 2 SMILES (',' separated in -s).")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample from latent space.")
 @click.option("-p", "--parent", is_flag=True, help="Store parent seed molecule in output file.")
-def main(checkpoint, epoch, smiles, num, temp, maxlen, out, vae, interpolate, random, parent):
+def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random, parent):
     dim_atom, dim_bond = get_input_dims()
     ini = configparser.ConfigParser()
     ini.read(os.path.join(checkpoint, "config.ini"))
@@ -47,6 +46,8 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, vae, interpolate, ra
                 conf[k] = float(v)
             except ValueError:
                 conf[k] = v
+
+    vae = conf["vae"] == "True"
 
     if smiles is not None:
         if "," not in smiles:
@@ -63,26 +64,17 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, vae, interpolate, ra
         layers=conf["n_rnn_layers"],
         dropout=conf["dropout"],
     )
-    if vae:
-        gnn = AttentiveFP2(
-            in_channels=dim_atom,
-            hidden_channels=conf["dim_gnn"],
-            out_channels=conf["dim_rnn"],
-            edge_dim=dim_bond,
-            num_layers=conf["n_gnn_layers"],
-            num_timesteps=conf["n_kernels"],
-            dropout=conf["dropout"],
-        )
-    else:
-        gnn = AttentiveFP(
-            in_channels=dim_atom,
-            hidden_channels=conf["dim_gnn"],
-            out_channels=conf["dim_rnn"],
-            edge_dim=dim_bond,
-            num_layers=conf["n_gnn_layers"],
-            num_timesteps=conf["n_kernels"],
-            dropout=conf["dropout"],
-        )
+
+    GNN_Class = AttentiveFP2 if vae else AttentiveFP
+    gnn = GNN_Class(
+        in_channels=dim_atom,
+        hidden_channels=conf["dim_gnn"],
+        out_channels=conf["dim_rnn"],
+        edge_dim=dim_bond,
+        num_layers=conf["n_gnn_layers"],
+        num_timesteps=conf["n_kernels"],
+        dropout=conf["dropout"],
+    )
 
     gnn.load_state_dict(torch.load(os.path.join(checkpoint, f"atfp_{epoch}.pt"), map_location=DEVICE))
     rnn.load_state_dict(torch.load(os.path.join(checkpoint, f"lstm_{epoch}.pt"), map_location=DEVICE))
@@ -110,8 +102,8 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, vae, interpolate, ra
         df = pd.DataFrame({"SMILES": smls, "log-likelihood": probs_abs, "Parent": parents})
     else:
         df = pd.DataFrame({"SMILES": smls, "log-likelihood": probs_abs})
-    os.makedirs("output/", exist_ok=True)
-    df.to_csv(f"output/{out}.csv", index=False)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    df.to_csv(out, index=False)
 
 
 @torch.no_grad

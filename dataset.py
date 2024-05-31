@@ -55,12 +55,21 @@ class OneMol(Dataset):
 class AttFPDataset(Dataset):
 
     def __init__(
-        self, filename, delimiter="\t", smls_col="SMILES", props=None, scaled_props=True, random=False, steps=128000
+        self,
+        filename,
+        delimiter="\t",
+        smls_col="SMILES",
+        props=None,
+        scaled_props=True,
+        random=False,
+        embed=False,
+        steps=128000,
     ):
         super(AttFPDataset, self).__init__()
         # tokenizer
         self.i2t, self.t2i = tokenizer()
         self.random = random
+        self.embed = embed
         self.scaled_props = scaled_props
         self.scaler = PropertyScaler(props, do_scale=scaled_props)
 
@@ -103,9 +112,17 @@ class AttFPDataset(Dataset):
 
         mol = MolFromSmiles(self.data[idx])
 
-        props = np.nan_to_num(self.scaler.transform(mol), 0.0)  # get scaled properties between 0 and 1
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
+        if self.embed:  # if used for embedding, no need to calculate properties and random SMILES
+            return Data(
+                atoms=torch.FloatTensor(atom_feats),
+                bonds=torch.FloatTensor(bond_feats),
+                edge_index=torch.LongTensor(edge_index),
+                num_nodes=num_nodes,
+            )
+
+        props = np.nan_to_num(self.scaler.transform(mol), 0.0)  # get scaled properties between 0 and 1
         smils = MolToSmiles(RemoveHs(mol), doRandom=True)
         if len(smils) > self.max_len:
             smils = self.data[idx]

@@ -74,15 +74,22 @@ The sampled SMILES strings are stored in `output/sampled.csv` together with the 
 
 To get all available options, call `python sampling.py --help`:
 ```
-Usage: sampling.py [OPTIONS] CHECKPOINTFOLDER
+Usage: sampling.py [OPTIONS]
 
 Options:
-  -e, --epoch TEXT      Epoch of models to load.
-  -s, --smiles TEXT     Reference SMILES to use as seed for sampling.
-  -n, --num INTEGER     How many molecules to sample.
-  -t, --temp FLOAT      Temperature to use for multinomial sampling.
-  -l, --maxlen INTEGER  Maximum allowed SMILES string length.
-  --help                Show this message and exit.
+  -c, --checkpoint TEXT  Checkpoint folder.
+  -e, --epoch INTEGER    Epoch of models to load.
+  -s, --smiles TEXT      Reference SMILES to use as seed for sampling.
+  -n, --num INTEGER      How many molecules to sample.
+  -t, --temp FLOAT       Temperature to transform logits before for
+                         multinomial sampling.
+  -l, --maxlen INTEGER   Maximum allowed SMILES string length.
+  -o, --out TEXT         Output filename
+  -i, --interpolate      Linear interpolation between 2 SMILES (',' separated
+                         in -s).
+  -r, --random           Randomly sample from latent space.
+  -p, --parent           Store parent seed molecule in output file.
+  --help                 Show this message and exit.
 ```
 
 ### Embedding
@@ -100,23 +107,64 @@ Options:
   -f, --folder TEXT         Checkpoint folder to load models from.
   -e, --epoch TEXT          Epoch of models to load.
   -b, --batch_size INTEGER  Batch size to use for embedding.
-  -n, --n_jobs INTEGER      Number of cores to use for data loader.
+  -n, --n_mols INTEGER      Number of molecules to randomly sample. 0 = all
+  -j, --n_jobs INTEGER      Number of cores to use for data loader.
   --help                    Show this message and exit.
+```
+
+## Finetuneing
+Finetuneing a trained model on another set of SMILES strings can be achieved as follows:
+```bash
+python finetune.py data/actives.smi
+```
+To get all available options, call `python finetune.py --help`:
+```
+Usage: finetune.py [OPTIONS] FILENAME
+
+Options:
+  -c, --checkpoint TEXT        Checkpoint folder.
+  -e, --epoch_load INTEGER     Epoch of models to load.
+  -n, --run_name TEXT          Name of the run for saving (filename if
+                               omitted).
+  -d, --delimiter TEXT         Column delimiter of input file.
+  -sc, --smls_col TEXT         Name of column that contains SMILES.
+  -ne, --epochs INTEGER        Nr. of epochs to train.
+  -o, --dropout FLOAT          Dropout fraction.
+  -b, --batch_size INTEGER     Number of molecules per batch.
+  -r, --random                 Randomly sample molecules in each training
+                               step.
+  -es, --epoch_steps INTEGER   If random, number of batches per epoch.
+  -v, --val FLOAT              Fraction of the data to use for validation.
+  -l, --lr FLOAT               Learning rate.
+  -lf, --lr_fact FLOAT         Learning rate decay factor.
+  -ls, --lr_step INTEGER       LR Step decay after nr. of epochs.
+  -a, --after INTEGER          Epoch steps to save model.
+  -t, --temp FLOAT             Temperature to use during SMILES sampling.
+  -ns, --n_sample INTEGER      Nr. SMILES to sample after each trainin epoch.
+  -wp, --weight_prop FLOAT     Factor for weighting property loss in VAE loss
+  -wp, --weight_kld FLOAT      Factor for weighting KL divergence loss in VAE
+                               loss
+  -ac, --anneal_cycle INTEGER  Number of epochs for one KLD annealing cycle
+  -ag, --anneal_grow INTEGER   Number of annealing cycles with increasing
+                               values
+  -ar, --anneal_ratio FLOAT    Fraction of annealing vs. constant KLD weight
+  --vae / --no-vae             Whether to train a VAE or only AE
+  --scale / --no-scale         Whether to scale all properties from 0 to 1
+  -p, --n_proc INTEGER         Number of CPU processes to use
+  --help                       Show this message and exit.
 ```
 
 ## Benchmark
 To benchmark the obtained representation, use `benchmark.py`. 
-It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) and optionally the [CDDD](https://github.com/jrwnter/cddd) repositories. 
+It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) repository, and optionally on the [CDDD](https://github.com/jrwnter/cddd) repository. 
 Please follow the installation instructions described in their READMEs.
 
 ## KLD Annealing
-Emplyoing a growing sigmoidal cyclical annealing schedule:
+In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's an example of how the schedule looks for either linear or sigmoid cyclical annealing with the parameters `anneal_cycle=5`, `anneal_grow=5`, `anneal_ratio=0.75` and `epoch_steps=1000`:
 
 <img src="paper/figures/annealing_cyclical.png" alt="annealing" width="400"/>
 
 Adapted from https://github.com/haofuml/cyclical_annealing
 
-### References
-
-#### KLD Weight Annealing
-https://github.com/haofuml/cyclical_annealing
+## Citing
+to be added

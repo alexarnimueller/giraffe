@@ -62,7 +62,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-dm", "--dim_mlp", default=512, help="Hidden dimension of MLP layers")
 @click.option("-wp", "--weight_prop", default=10.0, help="Factor for weighting property loss in VAE loss")
 @click.option("-wp", "--weight_kld", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
-@click.option("-ac", "--anneal_cycle", default=4, help="Number of epochs for one KLD annealing cycle")
+@click.option("-ac", "--anneal_cycle", default=5, help="Number of epochs for one KLD annealing cycle")
+@click.option("-ag", "--anneal_grow", default=5, help="Number of annealing cycles with increasing values")
+@click.option("-ar", "--anneal_ratio", default=0.75, help="Fraction of annealing vs. constant KLD weight")
 @click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("-p", "--n_proc", default=6, help="Number of CPU processes to use")
@@ -94,6 +96,8 @@ def main(
     weight_prop,
     weight_kld,
     anneal_cycle,
+    anneal_grow,
+    anneal_ratio,
     vae,
     scale,
     n_proc,
@@ -107,6 +111,8 @@ def main(
     # Write parameters to config file and define variables
     weight_kld = weight_kld if vae else 0.0
     anneal_cycle = anneal_cycle if vae else 0
+    anneal_grow = anneal_grow if vae else 0.0
+    anneal_ratio = anneal_ratio if vae else 0
     ini = configparser.ConfigParser()
     config = {
         "filename": filename,
@@ -133,6 +139,8 @@ def main(
         "weight_props": weight_prop,
         "weight_kld": weight_kld,
         "anneal_cycle": anneal_cycle,
+        "anneal_grow": anneal_grow,
+        "anneal_ratio": anneal_ratio,
         "scaled_props": scale,
         "vae": vae,
     }
@@ -152,26 +160,16 @@ def main(
         ini.write(configfile)
 
     # Create models
-    if vae:
-        gnn = AttentiveFP2(
-            in_channels=dim_atom,
-            hidden_channels=dim_gnn,
-            out_channels=dim_rnn,
-            edge_dim=dim_bond,
-            num_layers=layers_gnn,
-            num_timesteps=kernels_gnn,
-            dropout=dropout,
-        ).to(DEVICE)
-    else:
-        gnn = AttentiveFP(
-            in_channels=dim_atom,
-            hidden_channels=dim_gnn,
-            out_channels=dim_rnn,
-            edge_dim=dim_bond,
-            num_layers=layers_gnn,
-            num_timesteps=kernels_gnn,
-            dropout=dropout,
-        ).to(DEVICE)
+    GNN_Class = AttentiveFP2 if vae else AttentiveFP
+    gnn = GNN_Class(
+        in_channels=dim_atom,
+        hidden_channels=dim_gnn,
+        out_channels=dim_rnn,
+        edge_dim=dim_bond,
+        num_layers=layers_gnn,
+        num_timesteps=kernels_gnn,
+        dropout=dropout,
+    ).to(DEVICE)
     rnn = LSTM(
         input_dim=alphabet,
         embedding_dim=dim_emb,
@@ -220,7 +218,9 @@ def main(
     anneal = []
     if vae:
         total_steps = epochs * (epoch_steps if random else len(train_loader))
-        anneal = anneal_cycle_linear(total_steps, n_cycle=epochs // anneal_cycle, n_grow=4, ratio=0.75)
+        anneal = anneal_cycle_linear(
+            total_steps, n_cycle=epochs // anneal_cycle, n_grow=anneal_grow, ratio=anneal_ratio
+        )
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
@@ -259,11 +259,7 @@ def main(
         schedule.step()
         last_lr = schedule.get_last_lr()[0]
         writer.add_scalar("lr", last_lr, epoch * len(train_loader))
-        print(
-            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
-            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"Weight KLD: {fk*weight_kld:.6f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
-        )
+
         # sampling
         valids, _, _, _, _, _ = temperature_sampling(
             gnn,
@@ -275,7 +271,14 @@ def main(
             verbose=True,
             vae=vae,
         )
-        writer.add_scalar("valid", len(valids) / n_sample, epoch * len(train_loader))
+        valid = len(valids) / n_sample
+        writer.add_scalar("valid", valid, epoch * len(train_loader))
+
+        print(
+            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
+            + f"Weight KLD: {fk*weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+        )
 
         # save loss and models
         if epoch % after == 0:
