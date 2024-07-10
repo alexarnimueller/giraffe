@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import os
 import subprocess
 
 import click
@@ -10,7 +11,7 @@ import seaborn as sns
 from rdkit.Chem import AllChem, MolFromSmiles
 from rdkit.DataStructs import DiceSimilarity
 
-WDIR = "~/Code/Generative/GraphGiraffe"
+WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
 
 
 @click.command()
@@ -54,7 +55,7 @@ def main(smls, n_mols, temp, epoch, checkpoint, col):
 
     if len(data) < n_mols:  # if invalid molecules found
         n_mols = len(data)
-    
+
     data.to_csv(f"{WDIR}/paper/figures/similarity_single.csv", index=False)
 
     # plot

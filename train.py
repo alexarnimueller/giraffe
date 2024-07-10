@@ -9,8 +9,7 @@ import click
 import numpy as np
 import torch
 import torch.nn as nn
-from rdkit import Chem, RDLogger
-from rdkit.Chem.Descriptors import CalcMolDescriptors
+from rdkit import RDLogger
 from rdkit.rdBase import DisableLog
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
@@ -23,6 +22,7 @@ from model import (
     AttentiveFP,
     AttentiveFP2,
     anneal_cycle_linear,
+    anneal_cycle_sigmoid,
     loss_function,
     reparameterize,
 )
@@ -40,35 +40,36 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-e", "--epochs", default=160, help="Nr. of epochs to train.")
+@click.option("-e", "--epochs", default=100, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
 @click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
 @click.option("-p", "--props", default=None, help="Comma-seperated list of descriptors to use. All, if omitted")
-@click.option("-es", "--epoch_steps", default=1000, help="If random, number of batches per epoch.")
+@click.option("--epoch_steps", "--es", default=1000, help="If random, number of batches per epoch.")
 @click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate.")
-@click.option("-lf", "--lr_fact", default=0.75, help="Learning rate decay factor.")
-@click.option("-ls", "--lr_step", default=10, help="LR Step decay after nr. of epochs.")
+@click.option("--lr_fact", "--lf", default=0.75, help="Learning rate decay factor.")
+@click.option("--lr_step", "--ls", default=10, help="LR Step decay after nr. of epochs.")
 @click.option("-a", "--after", default=5, help="Epoch steps to save model.")
 @click.option("-t", "--temp", default=0.5, help="Temperature to use during SMILES sampling.")
-@click.option("-ns", "--n_sample", default=100, help="Nr. SMILES to sample after each trainin epoch.")
-@click.option("-nk", "--kernels_gnn", default=2, help="Nr. GNN kernels")
-@click.option("-ng", "--layers_gnn", default=2, help="Nr. GNN layers")
-@click.option("-nr", "--layers_rnn", default=2, help="Nr. RNN layers")
-@click.option("-nm", "--layers_mlp", default=2, help="Nr. MLP layers")
-@click.option("-dg", "--dim_gnn", default=512, help="Hidden dimension of GNN layers")
-@click.option("-dr", "--dim_rnn", default=512, help="Hidden dimension of RNN layers")
-@click.option("-de", "--dim_emb", default=512, help="Dimension of RNN token embedding")
-@click.option("-dm", "--dim_mlp", default=512, help="Hidden dimension of MLP layers")
-@click.option("-wp", "--weight_prop", default=10.0, help="Factor for weighting property loss in VAE loss")
-@click.option("-wp", "--weight_kld", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
-@click.option("-ac", "--anneal_cycle", default=5, help="Number of epochs for one KLD annealing cycle")
-@click.option("-ag", "--anneal_grow", default=5, help="Number of annealing cycles with increasing values")
-@click.option("-ar", "--anneal_ratio", default=0.75, help="Fraction of annealing vs. constant KLD weight")
+@click.option("--n_sample", "--ns", default=100, help="Nr. SMILES to sample after each trainin epoch.")
+@click.option("--kernels_gnn", "--nk", default=2, help="Nr. GNN kernels")
+@click.option("--layers_gnn", "--ng", default=2, help="Nr. GNN layers")
+@click.option("--layers_rnn", "--nr", default=2, help="Nr. RNN layers")
+@click.option("--layers_mlp", "--nm", default=2, help="Nr. MLP layers")
+@click.option("--dim_gnn", "--dg", default=512, help="Hidden dimension of GNN layers")
+@click.option("--dim_rnn", "--dr", default=512, help="Hidden dimension of RNN layers")
+@click.option("--dim_tok", "--dt", default=64, help="Dimension of RNN token embedding")
+@click.option("--dim_mlp", "--dm", default=512, help="Hidden dimension of MLP layers")
+@click.option("--weight_prop", "--wp", default=10.0, help="Factor for weighting property loss in VAE loss")
+@click.option("--weight_kld", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option("--anneal_type", "--at", default="linear", help="Shape of cyclical annealing: linear or sigmoid")
+@click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one KLD annealing cycle")
+@click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
+@click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant KLD weight")
 @click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
-@click.option("-np", "--n_proc", default=6, help="Number of CPU processes to use")
+@click.option("--n_proc", "--np", default=6, help="Number of CPU processes to use")
 def main(
     filename,
     run_name,
@@ -93,10 +94,11 @@ def main(
     layers_mlp,
     dim_gnn,
     dim_rnn,
-    dim_emb,
+    dim_tok,
     dim_mlp,
     weight_prop,
     weight_kld,
+    anneal_type,
     anneal_cycle,
     anneal_grow,
     anneal_ratio,
@@ -136,11 +138,12 @@ def main(
         "n_mlp_layers": layers_mlp,
         "dim_gnn": dim_gnn,
         "n_kernels": kernels_gnn,
-        "dim_embed": dim_emb,
+        "dim_embed": dim_tok,
         "dim_rnn": dim_rnn,
         "dim_mlp": dim_mlp,
         "weight_props": weight_prop,
         "weight_kld": weight_kld,
+        "anneal_type": anneal_type,
         "anneal_cycle": anneal_cycle,
         "anneal_grow": anneal_grow,
         "anneal_ratio": anneal_ratio,
@@ -192,7 +195,7 @@ def main(
     ).to(DEVICE)
     rnn = LSTM(
         input_dim=alphabet,
-        embedding_dim=dim_emb,
+        embedding_dim=dim_tok,
         hidden_dim=dim_rnn,
         layers=layers_rnn,
         dropout=dropout,
@@ -227,9 +230,13 @@ def main(
     anneal = []
     if vae:
         total_steps = epochs * (epoch_steps if random else len(train_loader))
-        anneal = anneal_cycle_linear(
-            total_steps, n_cycle=epochs // anneal_cycle, n_grow=anneal_grow, ratio=anneal_ratio
-        )
+        n_cycle = epochs // anneal_cycle
+        if epochs % anneal_cycle:
+            n_cycle += epochs % anneal_cycle
+        if anneal_type == "linear":
+            anneal = anneal_cycle_linear(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
+        elif anneal_type == "sigmoid":
+            anneal = anneal_cycle_sigmoid(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")

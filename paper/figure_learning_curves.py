@@ -9,7 +9,7 @@ import click
 import matplotlib.pyplot as plt
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-WDIR = "~/Code/Generative/GraphGiraffe"
+WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
 
 MAXVALS = {"total": 40, "smiles": 0.3, "props": 0.025, "kld": 200}
 

@@ -24,7 +24,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 @click.command()
 @click.option("-c", "--checkpoint", default="models/pub_vae_lin_final", help="Checkpoint folder.")
-@click.option("-e", "--epoch", default=100, help="Epoch of models to load.")
+@click.option("-e", "--epoch", default=45, help="Epoch of models to load.")
 @click.option("-s", "--smiles", default=None, help="Reference SMILES to use as seed for sampling.")
 @click.option("-n", "--num", default=100, help="How many molecules to sample.")
 @click.option("-t", "--temp", default=0.5, help="Temperature to transform logits before for multinomial sampling.")
@@ -102,8 +102,10 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
         df = pd.DataFrame({"SMILES": smls, "log-likelihood": probs_abs, "Parent": parents})
     else:
         df = pd.DataFrame({"SMILES": smls, "log-likelihood": probs_abs})
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    if os.path.dirname(out):
+        os.makedirs(os.path.dirname(out), exist_ok=True)
     df.to_csv(out, index=False)
+    print(f"Sampled molecules saved to {out}")
 
 
 @torch.no_grad

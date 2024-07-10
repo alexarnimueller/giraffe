@@ -77,11 +77,13 @@ def main(directory, metrics, round):
                         m_out = {}
                         for i, (a, s) in enumerate(zip(df.loc[f"{m}_avg"], df.loc[f"{m}_std"])):
                             if not pd.isna(a):
-                                m_out[df.columns[i]] = f"{a} +/- {s}"
+                                m_out[df.columns[i]] = f"{a} ± {s}"
                         rslt[m][f"{path}_{n}"] = m_out
     # save aggregated results to csv files
     for m, v in rslt.items():
-        df = pd.DataFrame().from_dict(v, orient="index").sort_index()
+        df = pd.DataFrame().from_dict(v, orient="index")
+        df.sort_values(by=df.columns[0], inplace=True)
+        df.index.name = "model"
         df.to_csv(os.path.join(directory, f"{m}.csv"), sep=";", index=True, header=True)
 
 

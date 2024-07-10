@@ -23,19 +23,20 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.argument("output_file")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
+@click.option("-i", "--id_col", default=None, help="Name of column that contains compound IDs.")
 @click.option("-f", "--folder", default="models/pub_vae_lin_final", help="Checkpoint folder to load models from.")
 @click.option("-e", "--epoch", default=45, help="Epoch of models to load.")
 @click.option("-b", "--batch_size", default=512, help="Batch size to use for embedding.")
-@click.option("-n", "--n_mols", default=0, help="Number of molecules to randomly sample. 0 = all")
+@click.option("-n", "--n_mols", default=0, help="Number of molecules to randomly sub-sample. Default: 0 = all")
 @click.option("-j", "--n_jobs", default=4, help="Number of cores to use for data loader.")
-def main(input_file, output_file, delimiter, smls_col, folder, epoch, batch_size, n_mols, n_jobs):
-    smls, embds = embed_file(input_file, delimiter, smls_col, folder, epoch, batch_size, n_mols, n_jobs)
-    out = np.concatenate((np.asarray(smls).reshape(-1, 1), embds), axis=1)
+def main(input_file, output_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs):
+    ids, embds = embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs)
+    out = np.concatenate((np.asarray(ids).reshape(-1, 1), embds), axis=1)
     np.savetxt(output_file, out, delimiter=",", fmt="%s")
     print(f"Embeddings saved to {output_file}\n")
 
 
-def embed_file(input_file, delimiter, smls_col, folder, epoch, batch_size, n_mols, n_jobs):
+def embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs):
     dim_atom, dim_bond = get_input_dims()
     ini = configparser.ConfigParser()
     ini.read(os.path.join(folder, "config.ini"))
@@ -57,6 +58,10 @@ def embed_file(input_file, delimiter, smls_col, folder, epoch, batch_size, n_mol
     if n_mols:
         data = data.sample(n=int(n_mols), replace=False)
     smiles = data[smls_col].tolist()
+    if id_col:
+        ids = data[id_col].tolist()
+    else:
+        ids = smiles  # Use SMILES as IDs if no ID column is provided
     del data
 
     # Define GNN
@@ -78,8 +83,8 @@ def embed_file(input_file, delimiter, smls_col, folder, epoch, batch_size, n_mol
     # Embed molecules
     embs = smiles_embedding(gnn=gnn, smiles=smiles, batch_size=batch_size, n_jobs=n_jobs, vae=vae)
 
-    # Concatenate and save embeddings
-    return smiles, embs
+    # Return embeddings for IDs
+    return ids, embs
 
 
 @torch.no_grad

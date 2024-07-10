@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+import os
 
 import click
 import matplotlib as mpl
@@ -13,7 +14,7 @@ from tqdm.auto import tqdm
 from dataset import PropertyScaler
 from embedding import embed_file
 
-WDIR = "~/Code/Generative/GraphGiraffe"
+WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
 
 
 @click.command()
@@ -21,13 +22,13 @@ WDIR = "~/Code/Generative/GraphGiraffe"
 @click.option("-d", "--delim", default="\t")
 @click.option("-s", "--smls_col", default="SMILES")
 @click.option("-n", "--n_mols", default=25600)
-@click.option("-e", "--epoch", default=100)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pubchem_vae_cyc2")
-@click.option("-j", "--n_jobs", default=4)
+@click.option("-e", "--epoch", default=45)
+@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_lin_final")
+@click.option("-j", "--n_jobs", default=6)
 @click.option("-t", "--tsne", is_flag=True, default=False)
 @click.option("-x", "--perplex", default=40)
 def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, perplex):
-    smls, embs = embed_file(filename, delim, smls_col, checkpoint, epoch, 256, n_mols, n_jobs)
+    smls, embs = embed_file(filename, delim, smls_col, checkpoint, epoch, 512, n_mols, n_jobs)
     # properties
     print("Calculating properties")
     sclr = PropertyScaler(["MolWt", "MolLogP", "qed", "NumHDonors", "NumAromaticRings", "FractionCSP3"], do_scale=True)
@@ -37,7 +38,7 @@ def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, per
 
     # PCA
     print("Running PCA on embeddings...")
-    emb_red = PCA(n_components=5, random_state=42).fit_transform(embs)
+    emb_red = PCA(n_components=2, random_state=42).fit_transform(embs)
 
     if tsne:
         print("Running t-SNE on PCA-compressed embeddings...")

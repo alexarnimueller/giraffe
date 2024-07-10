@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os
 import re
 from typing import List, Union
 
@@ -269,7 +270,8 @@ class PropertyScaler(object):
         self.do_scale = do_scale
 
     def load_min_max_values(self):
-        d = json.loads(open("data/property_scales.json").read())
+        dirname = os.path.dirname(os.path.abspath(__file__))
+        d = json.loads(open(os.path.join(dirname, "data/property_scales.json")).read())
         d = {k: v for k, v in d.items() if k in self.descriptors.keys()}
 
         self.min_val = {k: v[0] for k, v in d.items()}

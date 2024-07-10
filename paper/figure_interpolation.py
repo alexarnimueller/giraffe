@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-
+import os
 import subprocess
 
 import click
@@ -9,7 +9,7 @@ import pandas as pd
 from rdkit.Chem import AllChem, MolFromSmiles
 from rdkit.DataStructs import DiceSimilarity
 
-WDIR = "~/Code/Generative/GraphGiraffe"
+WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
 
 
 @click.command()
@@ -17,9 +17,10 @@ WDIR = "~/Code/Generative/GraphGiraffe"
 @click.option("-e", "--end", default="c1ccccc1C2=NCC(=O)N(C)c3ccc(Cl)cc23")
 @click.option("-n", "--n_steps", default=100)
 @click.option("-t", "--temp", default=0.1)
-@click.option("-o", "--epoch", default=50)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_norm_p10")
+@click.option("-o", "--epoch", default=45)
+@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_lin_final")
 def main(start, end, n_steps, temp, epoch, checkpoint):
+    name = checkpoint.split("/")[-1]
     # sample from interpolation
     subprocess.run(
         [
@@ -38,12 +39,12 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
             "-c",
             checkpoint,
             "-o",
-            "interpolation",
+            f"output/interpolation_{name}.csv",
         ]
     )
     # read sampled compounds and calculate fingerprints
-    subprocess.run(["cp", f"{WDIR}/output/interpolation.csv", f"{WDIR}/paper/figures/interpolation50.csv"])
-    data = pd.read_csv(f"{WDIR}/paper/figures/interpolation50.csv")
+    subprocess.run(["cp", f"{WDIR}/output/interpolation_{name}.csv", f"{WDIR}/paper/figures/interpolation_{name}.csv"])
+    data = pd.read_csv(f"{WDIR}/paper/figures/interpolation_{name}.csv")
     data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["FP"] = data["Mol"].apply(lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None)
 
@@ -68,7 +69,7 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
     ax.legend(fontsize=16, shadow=True, loc="upper center")
     ax.grid(True)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/paper/figures/interpolation50.pdf")
+    plt.savefig(f"{WDIR}/paper/figures/interpolation_{name}.pdf")
     plt.close(fig)
 
 
