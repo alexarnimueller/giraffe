@@ -194,4 +194,4 @@ If you are using GIRAFFE in your research, please cite the following publication
 }
 ```
 
-To reproduce what is presented in the above publication, use the commit with tag `ml4lms submission`.
+To reproduce what is presented in the above publication, use the commit with tag `ml4lms_submission`.
