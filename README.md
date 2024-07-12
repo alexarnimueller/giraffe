@@ -193,5 +193,6 @@ If you are using GIRAFFE in your research, please cite the following publication
           url{https://openreview.net/forum?id=7WYcOGds6R}
 }
 ```
+A PDF of the publication is provided [here](https://github.com/alexarnimueller/giraffe/blob/main/paper/figures/giraffe_ml4lms_2024.pdf).
 
 To reproduce what is presented in the above publication, use the commit with tag `ml4lms_submission`.
