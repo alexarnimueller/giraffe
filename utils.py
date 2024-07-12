@@ -274,7 +274,7 @@ def atom_features(atom, explicit_H=True, use_chirality=True):
             ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B", "Si", "other"],
         )
         + one_of_k_encoding_unk(atom.GetDegree(), [0, 1, 2, 3, 4, 5, 6, 9])
-        + [atom.GetFormalCharge(), atom.GetNumRadicalElectrons()]
+        + [atom.GetFormalCharge(), bool(atom.GetNumRadicalElectrons())]
         + one_of_k_encoding_unk(
             atom.GetHybridization(),
             [

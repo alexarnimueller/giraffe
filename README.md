@@ -159,7 +159,7 @@ Options:
 ```
 
 ## KLD Annealing
-In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's an example of how the schedule looks for either linear or sigmoid cyclical annealing with the parameters `anneal_cycle=5`, `anneal_grow=5`, `anneal_ratio=0.75` and `epoch_steps=1000`:
+In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's an example of how the schedule looks for the two best performing cyclical annealing strategies for β values during training. Top (red): Linear increase over `4` cycles with cycle sizes of `10’000` steps with `7’500` increasing and `2’500` constant steps. Bottom (blue): Sigmoidal increase over `20` cycles with cycle sizes of `5’000` steps with `3’750` increasing and `1’250` constant steps. Both strategies were allowed to reach a maximum β value of `0.2`, and performed best in the tested benchmarks at the step indicated by a dashed line.
 
 <img src="paper/figures/annealing_cyclical.png" alt="annealing" width="400"/>
 
