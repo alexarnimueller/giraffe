@@ -17,8 +17,8 @@ WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
 @click.option("-e", "--end", default="c1ccccc1C2=NCC(=O)N(C)c3ccc(Cl)cc23")
 @click.option("-n", "--n_steps", default=100)
 @click.option("-t", "--temp", default=0.1)
-@click.option("-o", "--epoch", default=45)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_lin_final")
+@click.option("-o", "--epoch", default=70)
+@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_sig")
 def main(start, end, n_steps, temp, epoch, checkpoint):
     name = checkpoint.split("/")[-1]
     # sample from interpolation

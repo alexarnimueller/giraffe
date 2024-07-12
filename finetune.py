@@ -29,8 +29,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 @click.command()
 @click.argument("filename")
-@click.option("-c", "--checkpoint", default="models/pub_vae_lin_final", help="Checkpoint folder.")
-@click.option("-e", "--epoch_load", default=45, help="Epoch of models to load.")
+@click.option("-c", "--checkpoint", default="models/pub_vae_sig", help="Checkpoint folder.")
+@click.option("-e", "--epoch_load", default=70, help="Epoch of models to load.")
 @click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-sc", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")

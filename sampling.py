@@ -23,8 +23,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 @click.command()
-@click.option("-c", "--checkpoint", default="models/pub_vae_lin_final", help="Checkpoint folder.")
-@click.option("-e", "--epoch", default=45, help="Epoch of models to load.")
+@click.option("-c", "--checkpoint", default="models/pub_vae_sig", help="Checkpoint folder.")
+@click.option("-e", "--epoch", default=70, help="Epoch of models to load.")
 @click.option("-s", "--smiles", default=None, help="Reference SMILES to use as seed for sampling.")
 @click.option("-n", "--num", default=100, help="How many molecules to sample.")
 @click.option("-t", "--temp", default=0.5, help="Temperature to transform logits before for multinomial sampling.")

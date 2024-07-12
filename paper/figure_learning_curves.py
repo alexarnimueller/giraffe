@@ -50,7 +50,7 @@ def plot_single_curve(event_acc, log_path, name, y_label="Loss"):
 
 
 @click.command()
-@click.option("-l", "--log_dir", default=f"{WDIR}/logs/pub_vae_lin_final")
+@click.option("-l", "--log_dir", default=f"{WDIR}/logs/pub_vae_sig")
 @click.option("-n", "--n_steps", default=10000)
 def main(log_dir, n_steps):
     print("Loading Tensorflow logs...")

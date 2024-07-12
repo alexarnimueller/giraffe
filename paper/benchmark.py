@@ -33,10 +33,6 @@ from sklearn.svm import SVC, SVR
 
 from featurizer import GiraffeFeaturizer, MorganFPFeaturizer, PhysChemFeaturizer
 
-GIRAFFE_MODEL_DIR = "models/pubchem/atfp_45.pt"
-MOLBERT_MODEL_DIR = "/path/to/checkpoint.ckpt"
-CDDD_MODEL_DIR = "models/cddd_model"
-
 
 def get_data(dataset):
     """Check if exists, download if not, save splits return paths to separated splits"""
@@ -75,11 +71,11 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name, vae):
     def giraffe_fn(smiles):
         return giraffe.transform(smiles)[0]
 
-    def ecfp_fn(smiles):
-        return ecfp.transform(smiles)[0]
+    # def ecfp_fn(smiles):
+    #     return ecfp.transform(smiles)[0]
 
-    def rdkit_norm_fn(smiles):
-        return rdkit_norm.transform(smiles)[0]
+    # def rdkit_norm_fn(smiles):
+    #     return rdkit_norm.transform(smiles)[0]
 
     for i, (train_idx, valid_idx, test_idx) in enumerate(indices):
         train_df = df.iloc[train_idx]
@@ -154,7 +150,12 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name, vae):
 
 
 @click.command()
-@click.option("-m", "--giraffe_model_ckpt", default=GIRAFFE_MODEL_DIR, help="Checkpoint of the trained Giraffe model.")
+@click.option(
+    "-m",
+    "--giraffe_model_ckpt",
+    default="models/pub_vae_sig/atfp_70.pt",
+    help="Checkpoint of the trained Giraffe model.",
+)
 @click.option("-n", "--name", default=None, help="Name of the benchmark run.")
 @click.option("-v", "--vae", is_flag=True, help="Sampling from a VAE model with mu and std.")
 def main(giraffe_model_ckpt, name, vae):

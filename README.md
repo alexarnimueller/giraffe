@@ -75,15 +75,15 @@ After training, a config file containing all the used options will be saved in t
 If the input file only contains SMILES strings (single column, with or without header), Giraffe uses all calculable RDKit properties (scaled from 0 to 1). If the input file contains other numerical columns next to the SMILES, it will use those values as properties. The user has to ensure the properties are scaled to a reasonable range.
 
 ### Sampling
-To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `45` of the model `pubchem`), run the following:
+To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `70` of the model `pub_vae_sig`), run the following:
 ```bash
-python sampling.py -r -e 45 -t 0.6 -l 96 -n 100 models/pubchem
+python sampling.py -r -e 70 -t 0.6 -l 96 -n 100 models/pub_vae_sig
 ```
 If you ommit the `-r` flag, instead of selecting random points in latent space, the model will select random `100` SMILES from the training data and sample SMILES based on those seeds.
 
-Conditional sampling around a single SMILES string of interest using epoch `45` of the pretrained model `pubchem`:
+Conditional sampling around a single SMILES string of interest using epoch `70` of the pretrained model `pub_vae_sig`:
 ```bash
-python sampling.py -e 45 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" models/pubchem
+python sampling.py -e 70 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" models/pub_vae_sig
 ```
 The sampled SMILES strings are stored in `output/sampled.csv` together with the negative log likelihood score.
 
@@ -108,7 +108,7 @@ Options:
 ### Embedding
 To embed SMILES strings using the pretrained GNN, proceed as follows:
 ```bash
-python embedding.py -f models/pubchem -e 45 data/1k.txt output/test/embeddings.csv
+python embedding.py -f models/pub_vae_sig -e 70 data/1k.txt output/test/embeddings.csv
 ```
 To get all available options, call `python embedding.py --help`:
 ```
@@ -176,5 +176,8 @@ To benchmark the obtained representation, use `benchmark.py`.
 It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) repository, and optionally on the [CDDD](https://github.com/jrwnter/cddd) repository. 
 Please follow the installation instructions described in their READMEs.
 
-## Cite
+## Contributing
+If you'd like to contribute to GIRAFFE, have a look at `CONTRIBUTING.md`.
+
+## Citing
 If you are using GIRAFFE in your research, please cite the following publication:

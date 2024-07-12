@@ -17,32 +17,32 @@ WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
 @click.option("-e", "--end", default="c1ccccc1C2=NCC(=O)N(C)c3ccc(Cl)cc23")
 @click.option("-n", "--n_steps", default=100)
 @click.option("-t", "--temp", default=0.1)
-@click.option("-o", "--epoch", default=45)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_lin_final")
+@click.option("-o", "--epoch", default=70)
+@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_sig")
 def main(start, end, n_steps, temp, epoch, checkpoint):
     # sample from interpolation
-    # subprocess.run(
-    #     [
-    #         "python",
-    #         f"{WDIR}/sampling.py",
-    #         "-i",
-    #         # "-v",
-    #         "-s",
-    #         f"{start},{end}",
-    #         "-n",
-    #         str(n_steps),
-    #         "-t",
-    #         f"{temp}",
-    #         "-e",
-    #         str(epoch),
-    #         "-c",
-    #         checkpoint,
-    #         "-o",
-    #         "output/interpolation_props.csv",
-    #     ]
-    # )
-    # # read sampled compounds and calculate properties
-    # subprocess.run(["cp", f"{WDIR}/output/interpolation_props.csv", f"{WDIR}/paper/figures/interpolation_props.csv"])
+    subprocess.run(
+        [
+            "python",
+            f"{WDIR}/sampling.py",
+            "-i",
+            # "-v",
+            "-s",
+            f"{start},{end}",
+            "-n",
+            str(n_steps),
+            "-t",
+            f"{temp}",
+            "-e",
+            str(epoch),
+            "-c",
+            checkpoint,
+            "-o",
+            "output/interpolation_props.csv",
+        ]
+    )
+    # read sampled compounds and calculate properties
+    subprocess.run(["cp", f"{WDIR}/output/interpolation_props.csv", f"{WDIR}/paper/figures/interpolation_props.csv"])
     data = pd.read_csv(f"{WDIR}/paper/figures/interpolation_props.csv")
     data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["Desc"] = data["Mol"].apply(lambda m: CalcMolDescriptors(m) if m else None)
