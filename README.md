@@ -184,3 +184,14 @@ Please check the `LICENSE` file for more information.
 
 ## Citing
 If you are using GIRAFFE in your research, please cite the following publication:
+```
+@article{ mueller2024giraffe, 
+          title={Combining Graph Attention and Recurrent Neural Networks in a Variational Autoencoder for Molecular Representation Learning and Drug Design},
+          author={M{\"u}ller, Alex T and Atz, Kenneth and Reutlinger, Michael and Zorn, Nicolas},
+          journal={International Conference on Learning Representations},
+          year={2024},
+          url{https://openreview.net/forum?id=7WYcOGds6R}
+}
+```
+
+To reproduce what is presented in the above publication, use the commit with tag `ml4lms submission`.

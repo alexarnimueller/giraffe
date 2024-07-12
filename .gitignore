@@ -1,5 +1,8 @@
 sHPC/
 benchmarks/
+models/
+logs/
+output/
 data/*prop*
 
 # Byte-compiled / optimized / DLL files
