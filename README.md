@@ -15,6 +15,12 @@ An overview of the architecture and training logic of Giraffe looks as follows:
 <img src="paper/figures/net.png" width="600"/>
 
 ## Quick start
+### Anaconda Environment
+All packages needed to use GIRAFFE are provided in `environment.yml`. To create a new Anaconda environment from it, run the following:
+```bash
+conda env create -f environment.yml
+```
+
 ### Training
 Training a new model on a file with SMILES strings can be achieved as follows:
 ```bash
