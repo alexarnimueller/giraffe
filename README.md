@@ -179,5 +179,8 @@ Please follow the installation instructions described in their READMEs.
 ## Contributing
 If you'd like to contribute to GIRAFFE, have a look at `CONTRIBUTING.md`.
 
+## License
+Please check the `LICENSE` file for more information.
+
 ## Citing
 If you are using GIRAFFE in your research, please cite the following publication:
