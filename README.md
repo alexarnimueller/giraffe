@@ -3,16 +3,16 @@
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
 
 <p float="left">
-  <img src="paper/figures/logo2.png" width="200"/>
-  <img src="paper/figures/logo.png" width="200"/>
-  <img src="paper/figures/logo3.png" width="200"/>
+  <img src="examples/figures/logo2.png" width="200"/>
+  <img src="examples/figures/logo.png" width="200"/>
+  <img src="examples/figures/logo3.png" width="200"/>
 </p>
 
 This repository contains training, embedding and sampling code for the "Graph Infused Representation Assembled From a multi-Faceted variational auto-Encoder" (Giraffe) model used to create meaningful molecular representations for small molecules.
 
 An overview of the architecture and training logic of Giraffe looks as follows:
 
-<img src="paper/figures/net.png" width="600"/>
+<img src="examples/figures/net.png" width="600"/>
 
 ## Quick start
 ### Anaconda Environment
@@ -167,7 +167,7 @@ Options:
 ## KLD Annealing
 In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's an example of how the schedule looks for the two best performing cyclical annealing strategies for β values during training. Top (red): Linear increase over `4` cycles with cycle sizes of `10’000` steps with `7’500` increasing and `2’500` constant steps. Bottom (blue): Sigmoidal increase over `20` cycles with cycle sizes of `5’000` steps with `3’750` increasing and `1’250` constant steps. Both strategies were allowed to reach a maximum β value of `0.2`, and performed best in the tested benchmarks at the step indicated by a dashed line.
 
-<img src="paper/figures/annealing_cyclical.png" alt="annealing" width="400"/>
+<img src="examples/figures/annealing_cyclical.png" alt="annealing" width="400"/>
 
 Adapted from https://github.com/haofuml/cyclical_annealing
 
@@ -175,6 +175,9 @@ Adapted from https://github.com/haofuml/cyclical_annealing
 To benchmark the obtained representation, use `benchmark.py`. 
 It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) repository, and optionally on the [CDDD](https://github.com/jrwnter/cddd) repository. 
 Please follow the installation instructions described in their READMEs.
+
+## Examples
+The `examples` folder contains various scripts with examples on how to use the trained GIRAFFE models. Some examples reproduce figures presented in the corresponding publication. 
 
 ## Contributing
 If you'd like to contribute to GIRAFFE, have a look at `CONTRIBUTING.md`.
@@ -188,11 +191,11 @@ If you are using GIRAFFE in your research, please cite the following publication
 @article{ mueller2024giraffe, 
           title={Combining Graph Attention and Recurrent Neural Networks in a Variational Autoencoder for Molecular Representation Learning and Drug Design},
           author={M{\"u}ller, Alex T and Atz, Kenneth and Reutlinger, Michael and Zorn, Nicolas},
-          journal={International Conference on Learning Representations},
+          journal={International Conference on Machine Learning, ML4LMS Workshop},
           year={2024},
           url{https://openreview.net/forum?id=7WYcOGds6R}
 }
 ```
-A PDF of the publication is provided [here](https://github.com/alexarnimueller/giraffe/blob/main/paper/figures/giraffe_ml4lms_2024.pdf).
+A PDF of the publication is provided [here](https://github.com/alexarnimueller/giraffe/blob/main/examples/figures/giraffe_ml4lms_2024.pdf).
 
 To reproduce what is presented in the above publication, use the commit with tag `ml4lms_submission`.

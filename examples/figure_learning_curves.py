@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""A python script to plot learning curves for the different models from tensorboard logs to matplotlib figures."""
+"""A script to plot learning curves for the different models from tensorboard logs to matplotlib figures."""
 
 import os
 
@@ -9,7 +9,7 @@ import click
 import matplotlib.pyplot as plt
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 MAXVALS = {"total": 40, "smiles": 0.3, "props": 0.025, "kld": 200}
 
@@ -31,7 +31,9 @@ def plot_training_curves(event_acc, log_path, name_train, name_val, y_label="Los
     plt.xlabel("Steps")
     plt.ylabel(y_label)
     plt.legend(loc="best", frameon=True)
-    plt.savefig(f"{WDIR}/paper/figures/learning_curves_{os.path.basename(log_path)}_{name_train.split('_')[-1]}.pdf")
+    plt.savefig(
+        f"{WDIR}/examples/figures/learning_curves_{os.path.basename(log_path)}_{name_train.split('_')[-1]}.pdf"
+    )
     plt.close()
 
 
@@ -45,7 +47,7 @@ def plot_single_curve(event_acc, log_path, name, y_label="Loss"):
     plt.plot([i.step for i in vals], [i.value for i in vals])
     plt.xlabel("Steps")
     plt.ylabel(y_label)
-    plt.savefig(f"{WDIR}/paper/figures/learning_curves_{os.path.basename(log_path)}_{name}.pdf")
+    plt.savefig(f"{WDIR}/examples/figures/learning_curves_{os.path.basename(log_path)}_{name}.pdf")
     plt.close()
 
 

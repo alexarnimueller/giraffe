@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from model import anneal_cycle_linear, anneal_cycle_sigmoid
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
@@ -96,7 +96,7 @@ def main():
 
     plt.show()
 
-    fig.savefig(f"{WDIR}/paper/figures/annealing_cyclical.png", bbox_inches="tight", dpi=300)
+    fig.savefig(f"{WDIR}/examples/figures/annealing_cyclical.png", bbox_inches="tight", dpi=300)
     plt.close()
 
 

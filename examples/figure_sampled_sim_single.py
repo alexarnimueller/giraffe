@@ -1,6 +1,8 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""A script to plot the distribution of ECFP4 similarity of molecules sampled from a single molecule."""
+
 import os
 import subprocess
 
@@ -11,7 +13,7 @@ import seaborn as sns
 from rdkit.Chem import AllChem, MolFromSmiles
 from rdkit.DataStructs import DiceSimilarity
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
@@ -39,12 +41,12 @@ def main(smls, n_mols, temp, epoch, checkpoint, col):
             "-c",
             checkpoint,
             "-o",
-            "similarity_single",
+            "similarity_single.csv",
         ]
     )
     # read sampled compounds and calculate fingerprints
-    subprocess.run(["cp", f"{WDIR}/output/similarity_single.csv", f"{WDIR}/paper/figures/similarity_single.csv"])
-    data = pd.read_csv(f"{WDIR}/paper/figures/similarity_single.csv")
+    subprocess.run(["cp", f"{WDIR}/output/similarity_single.csv", f"{WDIR}/examples/figures/similarity_single.csv"])
+    data = pd.read_csv(f"{WDIR}/examples/figures/similarity_single.csv")
     data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["FP"] = data["Mol"].apply(lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None)
 
@@ -56,13 +58,13 @@ def main(smls, n_mols, temp, epoch, checkpoint, col):
     if len(data) < n_mols:  # if invalid molecules found
         n_mols = len(data)
 
-    data.to_csv(f"{WDIR}/paper/figures/similarity_single.csv", index=False)
+    data.to_csv(f"{WDIR}/examples/figures/similarity_single.csv", index=False)
 
     # plot
     sns.displot(data["Tanimoto Similarity"], kind="kde", fill=True, color=col, aspect=1.5)
     plt.xlim(0.2, 1)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/paper/figures/similarity_single.pdf")
+    plt.savefig(f"{WDIR}/examples/figures/similarity_single.pdf")
     plt.close()
 
 

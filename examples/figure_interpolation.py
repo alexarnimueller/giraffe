@@ -1,5 +1,8 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+
+"""A script to plot the interpolation between two molecules in the latent space as ECFP4 similarity."""
+
 import os
 import subprocess
 
@@ -9,7 +12,7 @@ import pandas as pd
 from rdkit.Chem import AllChem, MolFromSmiles
 from rdkit.DataStructs import DiceSimilarity
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
@@ -43,8 +46,10 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
         ]
     )
     # read sampled compounds and calculate fingerprints
-    subprocess.run(["cp", f"{WDIR}/output/interpolation_{name}.csv", f"{WDIR}/paper/figures/interpolation_{name}.csv"])
-    data = pd.read_csv(f"{WDIR}/paper/figures/interpolation_{name}.csv")
+    subprocess.run(
+        ["cp", f"{WDIR}/output/interpolation_{name}.csv", f"{WDIR}/examples/figures/interpolation_{name}.csv"]
+    )
+    data = pd.read_csv(f"{WDIR}/examples/figures/interpolation_{name}.csv")
     data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["FP"] = data["Mol"].apply(lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None)
 
@@ -69,7 +74,7 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
     ax.legend(fontsize=16, shadow=True, loc="upper center")
     ax.grid(True)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/paper/figures/interpolation_{name}.pdf")
+    plt.savefig(f"{WDIR}/examples/figures/interpolation_{name}.pdf")
     plt.close(fig)
 
 

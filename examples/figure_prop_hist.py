@@ -1,5 +1,8 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+
+"""A script to plot the distribution of properties of sampled compounds compared to the training set."""
+
 import os
 
 import click
@@ -10,12 +13,12 @@ from tqdm.auto import tqdm
 
 from dataset import PropertyScaler
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
 @click.argument("filename")
-@click.option("-d", "--delim", default="\t")
+@click.option("-d", "--delim", default=",")
 @click.option("-s", "--smls_col", default="SMILES")
 @click.option("-t", "--train_data", default=None)
 def main(filename, delim, smls_col, train_data):
@@ -44,7 +47,7 @@ def main(filename, delim, smls_col, train_data):
 
     plt.legend(loc="best")
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/paper/figures/props-hist.png")
+    plt.savefig(f"{WDIR}/examples/figures/props-hist.png")
     plt.close(fig)
 
     print("Properties of sampled compounds:")

@@ -1,5 +1,8 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+
+"""A script to plot properties of molecules sampled during interpolation of the latent space."""
+
 import os
 import subprocess
 
@@ -9,7 +12,7 @@ import pandas as pd
 from rdkit.Chem import MolFromSmiles
 from rdkit.Chem.Descriptors import CalcMolDescriptors
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
@@ -42,8 +45,10 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
         ]
     )
     # read sampled compounds and calculate properties
-    subprocess.run(["cp", f"{WDIR}/output/interpolation_props.csv", f"{WDIR}/paper/figures/interpolation_props.csv"])
-    data = pd.read_csv(f"{WDIR}/paper/figures/interpolation_props.csv")
+    subprocess.run(
+        ["cp", f"{WDIR}/output/interpolation_props.csv", f"{WDIR}/examples/figures/interpolation_props.csv"]
+    )
+    data = pd.read_csv(f"{WDIR}/examples/figures/interpolation_props.csv")
     data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["Desc"] = data["Mol"].apply(lambda m: CalcMolDescriptors(m) if m else None)
 
@@ -67,7 +72,7 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
     ax3.legend(loc="best", fontsize=14)
     ax4.legend(loc="best", fontsize=14)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/paper/figures/interpolation-props.png")
+    plt.savefig(f"{WDIR}/examples/figures/interpolation-props.png")
     plt.close(fig)
 
 

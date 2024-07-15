@@ -1,6 +1,8 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""A script to plot the distribution of ECFP4 similarities of molecules sampled around N training molecules."""
+
 import os
 import subprocess
 
@@ -11,7 +13,7 @@ import seaborn as sns
 from rdkit.Chem import AllChem, MolFromSmiles
 from rdkit.DataStructs import DiceSimilarity
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
@@ -37,12 +39,12 @@ def main(n_mols, temp, epoch, checkpoint, col):
             checkpoint,
             "-p",
             "-o",
-            "similarity_parent",
+            "similarity_parent.csv",
         ]
     )
     # read sampled compounds and calculate fingerprints
-    subprocess.run(["cp", f"{WDIR}/output/similarity_parent.csv", f"{WDIR}/paper/figures/similarity_parent.csv"])
-    data = pd.read_csv(f"{WDIR}/paper/figures/similarity_parent.csv")
+    subprocess.run(["cp", f"{WDIR}/output/similarity_parent.csv", f"{WDIR}/examples/figures/similarity_parent.csv"])
+    data = pd.read_csv(f"{WDIR}/examples/figures/similarity_parent.csv")
     data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["Mol_Parent"] = data["Parent"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["FP"] = data["Mol"].apply(lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None)
@@ -58,14 +60,14 @@ def main(n_mols, temp, epoch, checkpoint, col):
 
     # save
     data[["SMILES", "Parent", "Tanimoto Similarity"]].to_csv(
-        f"{WDIR}/paper/figures/similarity_parent.csv", index=False
+        f"{WDIR}/examples/figures/similarity_parent.csv", index=False
     )
 
     # plot
     sns.displot(data["Tanimoto Similarity"], kind="kde", fill=True, color=col, aspect=1.5)
     plt.xlim(0.2, 1.0)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/paper/figures/similarity_parent.pdf")
+    plt.savefig(f"{WDIR}/examples/figures/similarity_parent.pdf")
     plt.close()
 
 

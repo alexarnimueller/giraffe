@@ -1,5 +1,8 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
+
+"""A script to plot the latent space of a VAE model using t-SNE or PCA for dimensionality reduction."""
+
 import os
 
 import click
@@ -14,7 +17,7 @@ from tqdm.auto import tqdm
 from dataset import PropertyScaler
 from embedding import embed_file
 
-WDIR = os.path.expanduser("~/Code/Generative/GraphGiraffe")
+WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
@@ -71,7 +74,7 @@ def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, per
     cbar.set_ticks([0, 1])
     cbar.set_ticklabels(["low", "high"])
 
-    fname = f"{WDIR}/paper/figures/latentspace-tsne.png" if tsne else f"{WDIR}/paper/figures/latentspace-pca.png"
+    fname = f"{WDIR}/examples/figures/latentspace-tsne.png" if tsne else f"{WDIR}/examples/figures/latentspace-pca.png"
     plt.savefig(fname, dpi=300, bbox_inches="tight")
     plt.close(fig)
 

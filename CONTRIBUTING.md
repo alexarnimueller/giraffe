@@ -1,6 +1,6 @@
 # Contributing to GIRAFFE
 
-We want to make contributing to this project as easy and transparent as possible.
+We want to make contributing to this project as easy and transparent as possible. Please follow the guidelines below to contribute with bug fixes, new examples or other enhancements of this repository.
 
 ## Pull requests
 
