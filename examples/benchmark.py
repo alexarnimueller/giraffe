@@ -31,7 +31,7 @@ from chembench import load_data
 from sklearn import metrics
 from sklearn.svm import SVC, SVR
 
-from featurizer import GiraffeFeaturizer, MorganFPFeaturizer, PhysChemFeaturizer
+from featurizer import GiraffeFeaturizer
 
 
 def get_data(dataset):
@@ -65,8 +65,8 @@ def batchify(iterable, batch_size):
 def cv(dataset, summary_df, giraffe_model_ckpt, run_name, vae):
     df, indices = get_data(dataset)
     giraffe = GiraffeFeaturizer(giraffe_model_ckpt, vae)
-    ecfp = MorganFPFeaturizer(fp_size=2048, radius=2, use_counts=True, use_features=False)
-    rdkit_norm = PhysChemFeaturizer(normalise=True)
+    # ecfp = MorganFPFeaturizer(fp_size=2048, radius=2, use_counts=True, use_features=False)
+    # rdkit_norm = PhysChemFeaturizer(normalise=True)
 
     def giraffe_fn(smiles):
         return giraffe.transform(smiles)[0]
@@ -153,7 +153,7 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name, vae):
 @click.option(
     "-m",
     "--giraffe_model_ckpt",
-    default="models/pub_vae_sig/atfp_70.pt",
+    default="models/pub_vae_sig_final/atfp_70.pt",
     help="Checkpoint of the trained Giraffe model.",
 )
 @click.option("-n", "--name", default=None, help="Name of the benchmark run.")

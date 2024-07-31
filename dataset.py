@@ -241,6 +241,8 @@ def load_from_fname(filename, smls_col, delimiter):
 
 
 def attentive_fp_features(mol):
+    if mol is None:
+        return 0, np.array([]), np.array([]), np.array([])
     mol = AddHs(mol)
     # node and edge features
     atom_feats = np.array([atom_features(a) for a in mol.GetAtoms()])

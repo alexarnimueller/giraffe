@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import configparser
+import os
 from multiprocessing import Process, Queue, cpu_count
 
 import numpy as np
@@ -315,3 +317,18 @@ def get_input_dims():
         len(atom_features(Chem.MolFromSmiles("CCO").GetAtoms()[0])),
         len(bond_features(Chem.MolFromSmiles("CCO").GetBonds()[0])),
     )
+
+
+def read_config_ini(folder):
+    ini = configparser.ConfigParser()
+    ini.read(os.path.join(folder, "config.ini"))
+    conf = {}
+    for k, v in ini["CONFIG"].items():
+        try:
+            conf[k] = int(v)
+        except ValueError:
+            try:
+                conf[k] = float(v)
+            except ValueError:
+                conf[k] = v
+    return conf

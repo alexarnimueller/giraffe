@@ -1,19 +1,19 @@
 #! /usr/bin/env python
 # -*- coding: utf-8
 
-import configparser
 import os
 
 import click
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.decomposition import IncrementalPCA
 from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
 from dataset import AttFPDataset
 from model import AttentiveFP, AttentiveFP2
-from utils import get_input_dims
+from utils import get_input_dims, read_config_ini
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -29,27 +29,23 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-b", "--batch_size", default=512, help="Batch size to use for embedding.")
 @click.option("-n", "--n_mols", default=0, help="Number of molecules to randomly sub-sample. Default: 0 = all")
 @click.option("-j", "--n_jobs", default=4, help="Number of cores to use for data loader.")
-def main(input_file, output_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs):
-    ids, embds = embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs)
-    out = np.concatenate((np.asarray(ids).reshape(-1, 1), embds), axis=1)
+@click.option("-x", "--prec", default=4, help="Float precision")
+@click.option("-p", "--pca", is_flag=True, help="Whether embeddings should be further reduced by PCA")
+@click.option("-z", "--n_pca", default=16, help="If PCA is used, number of components to reduce to")
+def main(
+    input_file, output_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, prec, pca, n_pca, n_jobs
+):
+    ids, embds = embed_file(
+        input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs, pca, n_pca
+    )
+    out = np.concatenate((np.asarray(ids).reshape(-1, 1), np.round(embds, int(prec))), axis=1)
     np.savetxt(output_file, out, delimiter=",", fmt="%s")
     print(f"Embeddings saved to {output_file}\n")
 
 
-def embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs):
+def embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs, pca, n_pca):
     dim_atom, dim_bond = get_input_dims()
-    ini = configparser.ConfigParser()
-    ini.read(os.path.join(folder, "config.ini"))
-    conf = {}
-    for k, v in ini["CONFIG"].items():
-        try:
-            conf[k] = int(v)
-        except ValueError:
-            try:
-                conf[k] = float(v)
-            except ValueError:
-                conf[k] = v
-
+    conf = read_config_ini(folder)
     vae = conf["vae"] == "True"
 
     # Load data
@@ -82,6 +78,10 @@ def embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_siz
 
     # Embed molecules
     embs = smiles_embedding(gnn=gnn, smiles=smiles, batch_size=batch_size, n_jobs=n_jobs, vae=vae)
+
+    if pca:  # Reduce embeddings with PCA
+        ipca = IncrementalPCA(n_components=n_pca)
+        embs = ipca.fit_transform(embs)
 
     # Return embeddings for IDs
     return ids, embs

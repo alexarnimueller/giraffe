@@ -19,7 +19,7 @@ from dataset import AttFPDataset, tokenizer
 from model import FFNN, LSTM, AttentiveFP, AttentiveFP2, anneal_cycle_linear
 from sampling import temperature_sampling
 from train import train_one_epoch, validate_one_epoch
-from utils import get_input_dims
+from utils import get_input_dims, read_config_ini
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -89,18 +89,7 @@ def main(
     dim_atom, dim_bond = get_input_dims()
 
     # load model architecture config from trained model
-    ini = configparser.ConfigParser()
-    ini.read(os.path.join(checkpoint, "config.ini"))
-    conf = {}
-    for k, v in ini["CONFIG"].items():
-        try:
-            conf[k] = int(v)
-        except ValueError:
-            try:
-                conf[k] = float(v)
-            except ValueError:
-                conf[k] = v
-    del ini
+    conf = read_config_ini(checkpoint)
 
     # Write parameters to config file and define variables
     weight_kld = weight_kld if vae else 0.0

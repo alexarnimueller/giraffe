@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8
 
-import configparser
 import os
 import time
 
@@ -14,7 +13,7 @@ from rdkit.rdBase import DisableLog
 
 from dataset import OneMol, tokenizer
 from model import LSTM, AttentiveFP, AttentiveFP2, reparameterize
-from utils import get_input_dims, is_valid_mol
+from utils import get_input_dims, is_valid_mol, read_config_ini
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -35,18 +34,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-p", "--parent", is_flag=True, help="Store parent seed molecule in output file.")
 def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random, parent):
     dim_atom, dim_bond = get_input_dims()
-    ini = configparser.ConfigParser()
-    ini.read(os.path.join(checkpoint, "config.ini"))
-    conf = {}
-    for k, v in ini["CONFIG"].items():
-        try:
-            conf[k] = int(v)
-        except ValueError:
-            try:
-                conf[k] = float(v)
-            except ValueError:
-                conf[k] = v
-
+    conf = read_config_ini(checkpoint)
     vae = conf["vae"] == "True"
 
     if smiles is not None:
