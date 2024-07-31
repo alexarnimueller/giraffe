@@ -200,4 +200,4 @@ If you are using GIRAFFE in your research, please cite the following publication
 ```
 A PDF of the publication is provided [here](https://github.com/alexarnimueller/giraffe/blob/main/examples/figures/giraffe_ml4lms_2024.pdf).
 
-To reproduce what is presented in the above publication, use the commit with tag `ml4lms_submission`.
+To reproduce what is presented in the above publication, use the commit with tag `v1.0.0`.
