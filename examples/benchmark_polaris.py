@@ -141,7 +141,7 @@ def eval_one_epoch(model, valid_loader):
     return total_loss / len(valid_loader)
 
 
-def cv(dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
+def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
     giraffe = GiraffeFeaturizer(giraffe_model_ckpt, True, n_jobs=n_jobs)
 
     logger.info(f"Downloading and featurizing {dataset}...")
@@ -233,10 +233,11 @@ def cv(dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs
     results.github_url = "https://github.com/alexarnimueller/giraffe"
     results.paper_url = "https://openreview.net/forum?id=7WYcOGds6R"
     results.description = "GIRAFFE embeddings with a MLP."
-    results.upload_to_hub(owner="alexarnimueller")
+    results.upload_to_hub(owner=pol_username)
 
 
 @click.command()
+@click.argument("polaris_username")
 @click.option("-d", "--dataset", default=None, help="Dataset to use. None: all predfined ones.")
 @click.option(
     "-m",
@@ -249,14 +250,14 @@ def cv(dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs
 @click.option("-l", "--lr", default=1e-3, help="Learning rate for the optimizer.")
 @click.option("-b", "--batch_size", default=128, help="Batch size for model training.")
 @click.option("-j", "--n_jobs", default=8, help="Number of cores to use for data loader.")
-def main(dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
+def main(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
     if dataset is not None:
         print(f"Running benchmark for {dataset}")
-        cv(dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
+        cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
     else:
         for dataset in BENCHMARKS:
             print(f"Running benchmark for {dataset}")
-            cv(dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
+            cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
 
 
 if __name__ == "__main__":
