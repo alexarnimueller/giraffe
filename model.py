@@ -16,9 +16,13 @@ from torch_geometric.utils import softmax
 
 
 class FFNN(nn.Module):
-    def __init__(self, input_dim=512, output_dim=210, hidden_dim=256, n_layers=3, dropout=0.3):
+    def __init__(self, input_dim=512, output_dim=125, hidden_dim=256, n_layers=3, dropout=0.3):
         super(FFNN, self).__init__()
         self.n_layers = n_layers
+        self.dropout = dropout
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
         layers = (
             [nn.Linear(input_dim, hidden_dim), nn.Dropout(dropout), nn.LeakyReLU()]
             + int(n_layers - 2) * [nn.Linear(hidden_dim, hidden_dim), nn.Dropout(dropout), nn.LeakyReLU()]
@@ -108,10 +112,7 @@ class GATEConv(MessagePassing):
         zeros(self.bias)
 
     def forward(self, x: Tensor, edge_index: Adj, edge_attr: Tensor) -> Tensor:
-        # edge_updater_type: (x: Tensor, edge_attr: Tensor)
         alpha = self.edge_updater(edge_index, x=x, edge_attr=edge_attr)
-
-        # propagate_type: (x: Tensor, alpha: Tensor)
         out = self.propagate(edge_index, x=x, alpha=alpha)
         out = out + self.bias
         return out

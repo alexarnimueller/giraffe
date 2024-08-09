@@ -5,19 +5,13 @@
 Molecule preprocessing functions
 """
 
-import gzip
-import pickle
-from multiprocessing import Manager, Process, cpu_count
 
 import click
 import numpy as np
 import pandas as pd
-from rdkit.Chem import MolFromSmiles, MolToSmiles
-from rdkit.Chem.Descriptors import CalcMolDescriptors
-from tqdm.auto import tqdm
+from rdkit.Chem import CanonSmiles
 
 from dataset import tokenizer
-from descriptors import scale_properties
 
 
 def keep_longest(smls, return_salt=False):
@@ -66,193 +60,55 @@ def harmonize_sc(mols):
     return out
 
 
-def smiles2mol(smiles, n_proc=1):
-    """generate RDKit molecules from smiles strings
-
-    :param smiles: {list/array} list of SMILES strings to turn into molecules
-    :param preprocess: {bool} whether preprocessing functions should be applied to the SMILES strings
-    :return: {array} array of molecules
-    """
-
-    def process(smls, n, d):
-        smls = keep_longest(smls)
-        smls = harmonize_sc(smls)
-        mols = list()
-        for s in tqdm(smls, desc="Smiles2Mol"):
-            try:
-                mols.append(MolFromSmiles(s))
-            except Exception:
-                print("Error! Can not process SMILES string %s" % s)
-                mols.append(None)
-        d[n] = mols
-
-    manager = Manager()
-    d = manager.dict()
-
-    if n_proc == -1:
-        n_proc = cpu_count()
-    processes = []
-    for i, m in enumerate(np.array_split(np.array(smiles), n_proc)):
-        p = Process(
-            target=process,
-            args=(
-                m,
-                i,
-                d,
-            ),
-        )
-        processes.append(p)
-        p.start()
-
-    for proc in processes:
-        proc.join()
-
-    return [m for v in d.values() for m in v]
+def batchify(iterable, batch_size):
+    for ndx in range(0, len(iterable), batch_size):
+        batch = iterable[ndx : min(ndx + batch_size, len(iterable))]
+        yield batch
 
 
-def mol2smiles(mols, n_proc=1):
-    """generate SMILES from RDKit molecules"""
-
-    def process(mols, n, d):
-        smls = list()
-        for m in tqdm(mols, desc="Mol2Smiles"):
-            try:
-                smls.append(MolToSmiles(m))
-            except Exception:
-                continue
-        d[n] = smls
-
-    manager = Manager()
-    d = manager.dict()
-
-    if n_proc == -1:
-        n_proc = cpu_count()
-    processes = []
-    for i, m in enumerate(np.array_split(np.array(mols), n_proc)):
-        p = Process(
-            target=process,
-            args=(
-                m,
-                i,
-                d,
-            ),
-        )
-        processes.append(p)
-        p.start()
-
-    for proc in processes:
-        proc.join()
-
-    return [s for v in tqdm(d.values()) for s in v]
-
-
-def mol2props(mols, n_proc=1):
-    """generate RDKit properites for molecules"""
-
-    def process(mols, n, d):
-        props = list()
-        for m in tqdm(mols, desc="Mol2Smiles"):
-            try:
-                props.append(list(CalcMolDescriptors(m, missingVal=0.0).values()))
-            except Exception:
-                continue
-        d[n] = props
-
-    manager = Manager()
-    d = manager.dict()
-
-    if n_proc == -1:
-        n_proc = cpu_count()
-    processes = []
-    for i, m in enumerate(np.array_split(np.array(mols), n_proc)):
-        p = Process(
-            target=process,
-            args=(
-                m,
-                i,
-                d,
-            ),
-        )
-        processes.append(p)
-        p.start()
-
-    for proc in processes:
-        proc.join()
-
-    return [s for v in tqdm(d.values()) for s in v]
-
-
-def preprocess_df(filename, smls_col, delimiter, n_proc=1):
-    _, t2i = tokenizer()
-    data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
-    print("data read")
-    mols = smiles2mol(data.SMILES.values, n_proc=n_proc)
-    print("molecules generated")
-    smls = mol2smiles(mols, n_proc=n_proc)
-    print("molecules filtered")
-    data = pd.DataFrame({"SMILES": smls, "MOL": mols})
-    data = data[data.SMILES.apply(lambda x: all([c in t2i.keys() for c in x]))]
-    print("smiles token checked")
-    return data
-
-
-def preprocess_single_core(filename, smls_col, delimiter):
-    def fun(s):
+def preprocess_smiles_file(filename, smls_col, delimiter, max_len, batch_size):
+    def canon(s):
         try:
-            m = MolFromSmiles(s)
-        except TypeError:
-            m = None
-        return m
+            o = CanonSmiles(s)
+            return o if len(o) <= max_len else None
+        except Exception:
+            return None
 
     _, t2i = tokenizer()
-    data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
-    print("data read")
+    if filename.endswith(".gz"):
+        data = pd.read_csv(filename, delimiter=delimiter, compression="gzip").rename(columns={smls_col: "SMILES"})
+    else:
+        data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
+    print(f"{len(data)} SMILES strings read")
+
+    print("Keeping longest fragment...")
     smls = keep_longest(data.SMILES.values)
+    del data  # cleanup to save memory
+
+    print("Harmonizing side chains...")
     smls = harmonize_sc(smls)
-    mols = [m for m in [fun(s) for s in smls] if m is not None]
-    print("molecules generated")
-    smls = [MolToSmiles(m) for m in tqdm(mols, desc="Mol2Smiles")]
-    print("molecules filtered")
-    data = pd.DataFrame({"SMILES": smls, "MOL": mols})
-    data = data[data.SMILES.apply(lambda x: all([c in t2i.keys() for c in x]))]
-    print("smiles token checked")
-    return data
 
+    print("Checking SMILES validity...")
+    out = []
+    for batch in batchify(smls, batch_size):
+        tmp = [o for o in [canon(s) for s in batch] if o is not None]
+        out.extend([s for s in tmp if all([c in t2i.keys() for c in s])])
 
-def create_property_scaler(mols: list, filename: str):
-    def process(m):
-        return list(CalcMolDescriptors(m, missingVal=0).values())
-
-    print("calculating properties")
-    props = np.asarray([process(m) for m in mols])
-    print("properties calculated, creating scaler")
-    _ = scale_properties(props, save_to=filename)
-
-
-def create_properties(mols: list, filename: str):
-    def process(m):
-        return list(CalcMolDescriptors(m, missingVal=0).values())
-
-    print("calculating properties")
-    props = np.asarray([process(m) for m in mols])
-    pickle.dump(props, gzip.open(filename, "wb"))
+    uniq = list(set(out))
+    print(f"{len(uniq)} valid unique SMILES strings obtained")
+    return pd.DataFrame({"SMILES": uniq})
 
 
 @click.command()
 @click.argument("filename")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-n", "--n_proc", default=4, help="Number of parallel processes to use. -1 = all")
-def main(filename, smls_col, delimiter, n_proc):
-    if n_proc == 1:
-        data = preprocess_single_core(filename, smls_col, delimiter)
-    else:
-        data = preprocess_df(filename, smls_col, delimiter, n_proc=n_proc)
-    # create_properties(data, f"{filename[:-4]}_properties.pkl.gz")
-    data = data.drop_duplicates()
-    data.drop(columns="MOL").to_csv(f"{filename[:-4]}_proc.txt", sep="\t", index=False)
-    print("preprocessing completed!")
-    # print(f"saved data to {filename[:-4]}_proc.txt and std scaler to {filename[:-4]}_scaler.bin")
+@click.option("-l", "--max_len", default=150, help="Maximum length of SMILES string in characters.")
+@click.option("-b", "--batch_size", default=100000, help="Batch size used to chunck up SMILES list for processing.")
+def main(filename, smls_col, delimiter, max_len, batch_size):
+    data = preprocess_smiles_file(filename, smls_col, delimiter, max_len, batch_size)
+    data.to_csv(f"{filename[:-4]}_proc.txt.gz", sep="\t", index=False, compression="gzip")
+    print(f"preprocessing completed! Saved {len(data)} SMILES to {filename[:-4]}_proc.txt.gz")
 
 
 if __name__ == "__main__":

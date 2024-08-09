@@ -9,8 +9,7 @@ import click
 import numpy as np
 import torch
 import torch.nn as nn
-from rdkit import Chem, RDLogger
-from rdkit.Chem.Descriptors import CalcMolDescriptors
+from rdkit import RDLogger
 from rdkit.rdBase import DisableLog
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
@@ -127,7 +126,17 @@ def main(
         "scaled_props": scale,
         "vae": vae,
     }
-    config["n_props"] = n_props = len(CalcMolDescriptors(Chem.MolFromSmiles("O1CCNCC1")))
+
+    dataset = AttFPDataset(
+        filename=filename,
+        delimiter=delimiter,
+        smls_col=smls_col,
+        random=random,
+        scaled_props=scale,
+        steps=int(epoch_steps * batch_size * (1 + val)) if random else 0,
+    )
+
+    config["n_props"] = n_props = dataset.n_props
     config["alphabet"] = conf["alphabet"]
 
     # Define paths
@@ -177,14 +186,6 @@ def main(
     schedule = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_fact)
     criterion1 = nn.CrossEntropyLoss(reduction="mean")
     criterion2 = nn.MSELoss(reduction="mean")
-    dataset = AttFPDataset(
-        filename=filename,
-        delimiter=delimiter,
-        smls_col=smls_col,
-        random=random,
-        scaled_props=scale,
-        steps=int(epoch_steps * batch_size * (1 + val)) if random else 0,
-    )
     train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
     valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
@@ -243,7 +244,8 @@ def main(
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"Weight KLD: {fk*weight_kld:.6f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+            + f"Weight KLD: {fk * weight_kld:.6f}, LR: {last_lr:.6f}, "
+            + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 
         valids, _, _, _, _, _ = temperature_sampling(
@@ -262,7 +264,8 @@ def main(
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"Weight KLD: {fk*weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+            + f"Weight KLD: {fk * weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
+            + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 
         # save loss and models

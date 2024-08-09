@@ -293,7 +293,8 @@ def main(
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"Weight KLD: {fk*weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, Time: {dur//60:.0f}min {dur%60:.0f}sec"
+            + f"Weight KLD: {fk * weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
+            + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 
         # save loss and models

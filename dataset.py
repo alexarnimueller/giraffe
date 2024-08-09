@@ -92,6 +92,8 @@ class AttFPDataset(Dataset):
             idx = np.random.randint(len(self.data))
 
         mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
+        if mol is None:
+            raise SyntaxWarning(f"Could not parse SMILES: {self.data.iloc[idx][self.smls_col]}")
 
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
@@ -106,7 +108,12 @@ class AttFPDataset(Dataset):
         props = self.scaler.transform(mol)  # get scaled properties between 0 and 1
         mask = np.isfinite(props).astype(float)  # to exclude potential nan / inf values
         props = np.nan_to_num(props, nan=0.0, posinf=1.0, neginf=0.0)
-        smils = MolToSmiles(RemoveHs(mol), doRandom=True)
+
+        if mol is not None:
+            smils = MolToSmiles(RemoveHs(mol), doRandom=True)
+        else:
+            smils = self.data.iloc[idx][self.smls_col]
+
         if len(smils) > self.max_len:
             smils = self.data.iloc[idx][[self.smls_col]]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
@@ -178,13 +185,20 @@ class AttFPTableDataset(Dataset):
             idx = np.random.randint(len(self.data))
 
         mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
+        if mol is None:
+            raise SyntaxWarning(f"Could not parse SMILES: {self.data.iloc[idx][self.smls_col]}")
+
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
         props = np.array(self.data.iloc[idx][self.props].values, dtype=float)
         mask = np.isfinite(props).astype(float)  # to exclude potential nan / inf values
         props = np.nan_to_num(props, nan=0.0, posinf=1.0, neginf=0.0)
 
-        smils = MolToSmiles(RemoveHs(mol), doRandom=True)
+        if mol is not None:
+            smils = MolToSmiles(RemoveHs(mol), doRandom=True)
+        else:
+            smils = self.data.iloc[idx][self.smls_col]
+
         if len(smils) > self.max_len:
             smils = self.data.iloc[idx][self.smls_col]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
@@ -281,13 +295,16 @@ class PropertyScaler(object):
 
     def _calc(self, mol, missing_val=0):
         rslt = {}
-        for descriptor, func in self.descriptors.items():
-            rslt[descriptor] = list()
-            try:
-                val = func(mol)
-            except Exception:
-                val = missing_val
-            rslt[descriptor] = val
+        if mol is not None:
+            for descriptor, func in self.descriptors.items():
+                rslt[descriptor] = list()
+                try:
+                    val = func(mol)
+                except Exception:
+                    val = missing_val
+                rslt[descriptor] = val
+        else:
+            rslt = {descriptor: missing_val for descriptor in self.descriptors}
         return rslt
 
     def scale(self, x, n):
