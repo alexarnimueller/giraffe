@@ -186,7 +186,10 @@ class AttFPTableDataset(Dataset):
 
         mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
         if mol is None:
-            raise SyntaxWarning(f"Could not parse SMILES: {self.data.iloc[idx][self.smls_col]}")
+            raise print(
+                f"WARNING: Could not parse SMILES: {self.data.iloc[idx][self.smls_col]}"
+                + " Setting all features and properties to zero"
+            )
 
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
