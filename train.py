@@ -365,7 +365,7 @@ def train_one_epoch(
 
         # write tensorboard summary
         step += 1
-        writer.add_scalar("loss_train_total", total_smls / step, (epoch - 1) * steps + step)
+        writer.add_scalar("loss_train_total", total_loss / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
         if vae:

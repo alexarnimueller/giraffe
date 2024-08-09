@@ -6,6 +6,7 @@ import os
 from multiprocessing import Process, Queue, cpu_count
 
 import numpy as np
+import torch
 from rdkit import Chem
 from rdkit.Chem import (
     CanonSmiles,
@@ -332,3 +333,9 @@ def read_config_ini(folder):
             except ValueError:
                 conf[k] = v
     return conf
+
+
+def mse_with_nans(y_pred, y_true):
+    mask = ~torch.isnan(y_true).to(y_pred.device)
+    diff = (torch.flatten(y_pred[mask]) - torch.flatten(y_true[mask])) ** 2
+    return torch.sum(diff) / mask.sum() if mask.sum() > 0 else 1e-6

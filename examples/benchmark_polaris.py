@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from featurizer import GiraffeFeaturizer
 from model import FFNN
+from utils import mse_with_nans
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -107,12 +108,6 @@ def get_data(dataset):
     return benchmark, train.X.tolist(), pd.DataFrame.from_dict(y), test.X
 
 
-def loss_with_nans(y_pred, y_true):
-    mask = ~torch.isnan(y_true).to(DEVICE)
-    diff = torch.abs(torch.flatten(y_pred[mask]) - torch.flatten(y_true[mask]))
-    return torch.sum(diff) / mask.sum() if mask.sum() > 0 else 0.0
-
-
 def train_one_epoch(model, train_loader, optimizer):
     total_loss = 0.0
     model.train()
@@ -121,7 +116,7 @@ def train_one_epoch(model, train_loader, optimizer):
         feats, labs = feats.to(DEVICE), labs.to(DEVICE)
         optimizer.zero_grad()
         output = model(feats)
-        loss = loss_with_nans(output, labs)
+        loss = mse_with_nans(output, labs)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -136,7 +131,7 @@ def eval_one_epoch(model, valid_loader):
             feats, labs = batch
             feats, labs = feats.to(DEVICE), labs.to(DEVICE)
             output = model(feats)
-            loss = loss_with_nans(output, labs)
+            loss = mse_with_nans(output, labs)
             total_loss += loss.item()
     return total_loss / len(valid_loader)
 
