@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from featurizer import GiraffeFeaturizer
 from model import FFNN
-from utils import mse_with_nans
+from utils import ce_with_nans, mse_with_nans
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -28,10 +28,10 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BENCHMARKS = [
     "graphium/tox21-v1",
     "graphium/zinc12k-v1",
-    # "polaris/adme-fang-r-1",
-    # "polaris/adme-fang-PERM-1",
-    # "polaris/adme-fang-SOLU-1",
-    # "polaris/adme-fang-RPPB-1",
+    "polaris/adme-fang-r-1",
+    "polaris/adme-fang-PERM-1",
+    "polaris/adme-fang-SOLU-1",
+    "polaris/adme-fang-RPPB-1",
     "novartis/adme-novartis-cyp3a4-reg",
     "biogen/adme-fang-reg-v1",
 ]
@@ -108,7 +108,10 @@ def get_data(dataset):
     return benchmark, train.X.tolist(), pd.DataFrame.from_dict(y), test.X
 
 
-def train_one_epoch(model, train_loader, optimizer):
+def train_one_epoch(model, train_loader, optimizer, classification=False):
+    criterion = mse_with_nans
+    if classification:
+        criterion = ce_with_nans
     total_loss = 0.0
     model.train()
     for batch in train_loader:
@@ -116,14 +119,17 @@ def train_one_epoch(model, train_loader, optimizer):
         feats, labs = feats.to(DEVICE), labs.to(DEVICE)
         optimizer.zero_grad()
         output = model(feats)
-        loss = mse_with_nans(output, labs)
+        loss = criterion(output, labs)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
     return total_loss / len(train_loader)
 
 
-def eval_one_epoch(model, valid_loader):
+def eval_one_epoch(model, valid_loader, classification=False):
+    criterion = mse_with_nans
+    if classification:
+        criterion = ce_with_nans
     total_loss = 0.0
     model.eval()
     with torch.no_grad():
@@ -131,7 +137,7 @@ def eval_one_epoch(model, valid_loader):
             feats, labs = batch
             feats, labs = feats.to(DEVICE), labs.to(DEVICE)
             output = model(feats)
-            loss = mse_with_nans(output, labs)
+            loss = criterion(output, labs)
             total_loss += loss.item()
     return total_loss / len(valid_loader)
 
@@ -145,6 +151,7 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
     X_test = np.nan_to_num(giraffe.transform(smls_test)[0], nan=0.0)
 
     y_all = y.values
+    classification = True if len(set(y_all.flatten())) < 5 else False
     X_train, X_val, y_train, y_val = train_test_split(X, y_all, test_size=0.1, random_state=4070)
     if y.shape[1] == 1:
         y_train, y_val, y_all = y_train.flatten(), y_val.flatten(), y.values.flatten()
@@ -172,8 +179,8 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
     # train
     train_losses, eval_losses = [], []
     for e in range(max_epochs):
-        loss = train_one_epoch(model, train_loader, optimizer)
-        val_loss = eval_one_epoch(model, valid_loader)
+        loss = train_one_epoch(model, train_loader, optimizer, classification)
+        val_loss = eval_one_epoch(model, valid_loader, classification)
         train_losses.append(loss)
         eval_losses.append(val_loss)
         logging.info(f"Loss at epoch {e + 1:03d}: Train: {loss:.4f}, Val: {val_loss:.4f}")
@@ -197,7 +204,7 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
     optimizer = Adam(model.parameters(), lr=lr)
 
     for e in range(e_retrain):
-        loss = train_one_epoch(model, full_loader, optimizer)
+        loss = train_one_epoch(model, full_loader, optimizer, classification)
     logging.info(f"Final training loss at epoch {e + 1:03d}: {loss:.4f}")
 
     # predict labels for test set
@@ -237,7 +244,7 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
 @click.option(
     "-m",
     "--giraffe_model_ckpt",
-    default="models/pub_vae_sig_final/atfp_70.pt",
+    default="models/big_sig/atfp_45.pt",
     help="Checkpoint of the trained Giraffe model.",
 )
 @click.option("-e", "--max_epochs", default=500, help="Maximum number of epochs to train.")
@@ -245,14 +252,14 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
 @click.option("-l", "--lr", default=1e-3, help="Learning rate for the optimizer.")
 @click.option("-b", "--batch_size", default=128, help="Batch size for model training.")
 @click.option("-j", "--n_jobs", default=8, help="Number of cores to use for data loader.")
-def main(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
+def main(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
     if dataset is not None:
         print(f"Running benchmark for {dataset}")
-        cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
+        cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
     else:
         for dataset in BENCHMARKS:
             print(f"Running benchmark for {dataset}")
-            cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
+            cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
 
 
 if __name__ == "__main__":

@@ -339,3 +339,8 @@ def mse_with_nans(y_pred, y_true):
     mask = ~torch.isnan(y_true).to(y_pred.device)
     diff = (torch.flatten(y_pred[mask]) - torch.flatten(y_true[mask])) ** 2
     return torch.sum(diff) / mask.sum() if mask.sum() > 0 else 1e-6
+
+
+def ce_with_nans(y_pred, y_true):
+    mask = ~torch.isnan(y_true).to(y_pred.device)
+    return torch.nn.functional.cross_entropy(y_pred[mask], y_true[mask]) / mask.sum() if mask.sum() > 0 else 1e-6

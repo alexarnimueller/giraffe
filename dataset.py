@@ -25,13 +25,15 @@ class OneMol(Dataset):
     def __init__(self, smiles, maxlen):
         super(OneMol, self).__init__()
         self.i2t, self.t2i = tokenizer()
-        self.smiles = smiles
         self.max_len = maxlen
+        self.smiles = smiles
+        self.mol = MolFromSmiles(smiles)
+        if self.mol is None:
+            raise ValueError(f"Invalid SMILES: {smiles}")
 
     def __getitem__(self, idx):
         smils = self.smiles
-        mol = MolFromSmiles(smils)
-        num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
+        num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(self.mol)
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
         smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
 
@@ -80,23 +82,23 @@ class AttFPDataset(Dataset):
         # Load smiles dataset
         self.data = load_from_fname(filename, smls_col, delimiter)
         self.max_len = self.data[smls_col].apply(lambda x: len(x)).max()
+        self.min_len = self.data[smls_col].apply(lambda x: len(x)).max()
         if isinstance(filename, str):
             print(f"Loaded {len(self.data)} SMILES")
             print("Max Length: ", self.max_len)
+            print("Min Length: ", self.min_len)
         # if random, set loops
         if random:
             self.loop = list(range(0, steps))
 
     def __getitem__(self, idx):
+        mol = None
         if self.random:  # randomly sample any molecule
             idx = np.random.randint(len(self.data))
 
-        mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
-        if mol is None:
-            print(
-                f"WARNING: Could not parse SMILES: {self.data.iloc[idx][self.smls_col]}"
-                + " Setting all features and properties to zero"
-            )
+        while mol is None:  # escape invalid molecules
+            mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
+            idx = np.random.randint(len(self.data))
 
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
@@ -184,15 +186,13 @@ class AttFPTableDataset(Dataset):
             self.loop = list(range(0, len(self.data)))
 
     def __getitem__(self, idx):
+        mol = None
         if self.random:  # randomly sample any molecule
             idx = np.random.randint(len(self.data))
 
-        mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
-        if mol is None:
-            print(
-                f"WARNING: Could not parse SMILES: {self.data.iloc[idx][self.smls_col]}"
-                + " Setting all features and properties to zero"
-            )
+        while mol is None:  # escape invalid molecules
+            mol = MolFromSmiles(self.data.iloc[idx][self.smls_col])
+            idx = np.random.randint(len(self.data))
 
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
@@ -261,8 +261,6 @@ def load_from_fname(filename, smls_col, delimiter):
 
 
 def attentive_fp_features(mol):
-    if mol is None:
-        return 0, np.array([]), np.array([]), np.array([])
     mol = AddHs(mol)
     # node and edge features
     atom_feats = np.array([atom_features(a) for a in mol.GetAtoms()])
