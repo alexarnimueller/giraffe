@@ -11,7 +11,7 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 
 WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
-MAXVALS = {"total": 40, "smiles": 0.3, "props": 0.025, "kld": 200}
+MAXVALS = {"total": 40, "smiles": 0.3, "props": 0.025, "vae": 200}
 
 
 def plot_training_curves(event_acc, log_path, name_train, name_val, y_label="Loss"):
@@ -64,12 +64,12 @@ def main(log_dir, n_steps):
         ("loss_train_total", "loss_val_total", "Total loss"),
         ("loss_train_smiles", "loss_val_smiles", "SMILES reconstruction loss"),
         ("loss_train_props", "loss_val_props", "Property MSE loss"),
-        ("loss_train_kld", "loss_val_kld", "KLD Loss"),
+        ("loss_train_vae", "loss_val_vae", "VAE Loss"),
     ]:
         print("Plotting", t, "and", v)
         plot_training_curves(event_acc, log_dir, t, v, lab)
 
-    for n in ["kld_weight", "lr", "valid"]:
+    for n in ["vae_weight", "lr", "valid"]:
         print("Plotting", n)
         plot_single_curve(event_acc, log_dir, n, n)
 

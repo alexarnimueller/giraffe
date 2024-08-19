@@ -19,10 +19,11 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.option("-s", "--start", default="O=C(O)[C@@H]2N3C(=O)[C@@H](NC(=O)[C@@H](c1ccc(O)cc1)N)[C@H]3SC2(C)C")
 @click.option("-e", "--end", default="c1ccccc1C2=NCC(=O)N(C)c3ccc(Cl)cc23")
 @click.option("-n", "--n_steps", default=100)
-@click.option("-t", "--temp", default=0.1)
-@click.option("-o", "--epoch", default=70)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_sig")
+@click.option("-t", "--temp", default=0.25)
+@click.option("-o", "--epoch", default=100)
+@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/big_sig_wae")
 def main(start, end, n_steps, temp, epoch, checkpoint):
+    name = checkpoint.split("/")[-1]
     # sample from interpolation
     subprocess.run(
         [
@@ -41,14 +42,18 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
             "-c",
             checkpoint,
             "-o",
-            "output/interpolation_props.csv",
+            f"output/interpolation_props_{name}.csv",
         ]
     )
     # read sampled compounds and calculate properties
     subprocess.run(
-        ["cp", f"{WDIR}/output/interpolation_props.csv", f"{WDIR}/examples/figures/interpolation_props.csv"]
+        [
+            "cp",
+            f"{WDIR}/output/interpolation_props_{name}.csv",
+            f"{WDIR}/examples/figures/interpolation_props_{name}.csv",
+        ]
     )
-    data = pd.read_csv(f"{WDIR}/examples/figures/interpolation_props.csv")
+    data = pd.read_csv(f"{WDIR}/examples/figures/interpolation_props_{name}.csv")
     data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["Desc"] = data["Mol"].apply(lambda m: CalcMolDescriptors(m) if m else None)
 
@@ -72,7 +77,7 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
     ax3.legend(loc="best", fontsize=14)
     ax4.legend(loc="best", fontsize=14)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/examples/figures/interpolation-props.png")
+    plt.savefig(f"{WDIR}/examples/figures/interpolation_props_{name}.png")
     plt.close(fig)
 
 

@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 from rdkit import RDLogger
-from rdkit.Chem import AddHs, MolFromSmiles, MolToSmiles, RemoveHs
+from rdkit.Chem import AddHs, MolFromSmiles, MolToSmiles
 from rdkit.Chem.Descriptors import descList
 from rdkit.rdBase import DisableLog
 from torch_geometric.data import Data, Dataset
@@ -114,9 +114,9 @@ class AttFPDataset(Dataset):
         mask = np.isfinite(props).astype(float)  # to exclude potential nan / inf values
         props = np.nan_to_num(props, nan=0.0, posinf=1.0, neginf=0.0)
 
-        if mol is not None:
-            smils = MolToSmiles(RemoveHs(mol), doRandom=True)
-        else:
+        try:
+            smils = MolToSmiles(mol, doRandom=True)
+        except Exception:
             smils = self.data.iloc[idx][self.smls_col]
 
         if len(smils) > self.max_len:
@@ -200,9 +200,9 @@ class AttFPTableDataset(Dataset):
         mask = np.isfinite(props).astype(float)  # to exclude potential nan / inf values
         props = np.nan_to_num(props, nan=0.0, posinf=1.0, neginf=0.0)
 
-        if mol is not None:
-            smils = MolToSmiles(RemoveHs(mol), doRandom=True)
-        else:
+        try:
+            smils = MolToSmiles(mol, doRandom=True)
+        except Exception:
             smils = self.data.iloc[idx][self.smls_col]
 
         if len(smils) > self.max_len:

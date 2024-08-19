@@ -54,11 +54,11 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-t", "--temp", default=0.5, help="Temperature to use during SMILES sampling.")
 @click.option("--n_sample", "--ns", default=100, help="Nr. SMILES to sample after each trainin epoch.")
 @click.option("--weight_prop", "--wp", default=10.0, help="Factor for weighting property loss in VAE loss")
-@click.option("--weight_kld", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option("--weight_vae", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
 @click.option("--anneal_type", "--at", default="linear", help="Shape of cyclical annealing: linear or sigmoid")
-@click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one KLD annealing cycle")
+@click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
 @click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
-@click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant KLD weight")
+@click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE weight")
 @click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("--n_proc", "--np", default=6, help="Number of CPU processes to use")
@@ -83,7 +83,7 @@ def main(
     temp,
     n_sample,
     weight_prop,
-    weight_kld,
+    weight_vae,
     anneal_cycle,
     anneal_grow,
     anneal_ratio,
@@ -102,7 +102,7 @@ def main(
     conf = read_config_ini(checkpoint)
 
     # Write parameters to config file and define variables
-    weight_kld = weight_kld if vae else 0.0
+    weight_vae = weight_vae if vae else 0.0
     anneal_cycle = anneal_cycle if vae else 0
     anneal_grow = anneal_grow if vae else 0.0
     anneal_ratio = anneal_ratio if vae else 0
@@ -132,7 +132,7 @@ def main(
         "dim_rnn": conf["dim_rnn"],
         "dim_mlp": conf["dim_mlp"],
         "weight_props": weight_prop,
-        "weight_kld": weight_kld,
+        "weight_vae": weight_vae,
         "anneal_cycle": anneal_cycle,
         "scaled_props": scale,
         "vae": vae,
@@ -212,7 +212,7 @@ def main(
         + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
     )
 
-    # KLD weight annealing
+    # VAE loss weight annealing
     anneal = []
     if vae:
         total_steps = epochs * (epoch_steps if random else len(train_loader))
@@ -237,7 +237,7 @@ def main(
             epoch,
             t2i,
             weight_prop,
-            weight_kld,
+            weight_vae,
             anneal,
             vae,
         )
@@ -252,7 +252,7 @@ def main(
             epoch * len(train_loader),
             t2i,
             weight_prop,
-            weight_kld * fk,
+            weight_vae * fk,
             vae,
         )
         dur = time.time() - time_start
@@ -260,9 +260,9 @@ def main(
         last_lr = schedule.get_last_lr()[0]
         writer.add_scalar("lr", last_lr, (epoch + 1) * len(train_loader))
         print(
-            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
-            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"Weight KLD: {fk * weight_kld:.6f}, LR: {last_lr:.6f}, "
+            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss VAE.: {l_k:.3f}, "
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss VAE.: {l_vk:.3f}, "
+            + f"Weight VAE: {fk * weight_vae:.6f}, LR: {last_lr:.6f}, "
             + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 
@@ -280,9 +280,9 @@ def main(
         writer.add_scalar("valid", valid, epoch * len(train_loader))
 
         print(
-            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
-            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"Weight KLD: {fk * weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
+            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss VAE.: {l_k:.3f}, "
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss VAE.: {l_vk:.3f}, "
+            + f"Weight VAE: {fk * weight_vae:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
             + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 

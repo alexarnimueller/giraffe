@@ -23,8 +23,8 @@ from model import (
     AttentiveFP2,
     anneal_cycle_linear,
     anneal_cycle_sigmoid,
-    loss_function,
     reparameterize,
+    vae_loss_func,
 )
 from sampling import temperature_sampling
 from utils import get_input_dims
@@ -61,13 +61,14 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("--dim_rnn", "--dr", default=512, help="Hidden dimension of RNN layers")
 @click.option("--dim_tok", "--dt", default=64, help="Dimension of RNN token embedding")
 @click.option("--dim_mlp", "--dm", default=512, help="Hidden dimension of MLP layers")
-@click.option("--weight_prop", "--wp", default=10.0, help="Factor for weighting property loss in VAE loss")
-@click.option("--weight_kld", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option("--weight_prop", "--wp", default=20.0, help="Factor for weighting property loss in VAE loss")
+@click.option("--weight_vae", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
 @click.option("--anneal_type", "--at", default="linear", help="Shape of cyclical annealing: linear or sigmoid")
-@click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one KLD annealing cycle")
+@click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
 @click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
-@click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant KLD weight")
-@click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
+@click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE loss weight")
+@click.option("--vae/--no-vae", default=True, help="Whether to train a variational AE or classical AE")
+@click.option("--wae/--no-wae", default=False, help="Whether to train a Wasserstein autoencoder using MMD")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("--n_proc", "--np", default=6, help="Number of CPU processes to use")
 def main(
@@ -97,12 +98,13 @@ def main(
     dim_tok,
     dim_mlp,
     weight_prop,
-    weight_kld,
+    weight_vae,
     anneal_type,
     anneal_cycle,
     anneal_grow,
     anneal_ratio,
     vae,
+    wae,
     scale,
     n_proc,
 ):
@@ -113,10 +115,11 @@ def main(
     dim_atom, dim_bond = get_input_dims()
 
     # Write parameters to config file and define variables
-    weight_kld = weight_kld if vae else 0.0
+    weight_vae = weight_vae if vae else 0.0
     anneal_cycle = anneal_cycle if vae else 0
     anneal_grow = anneal_grow if vae else 0.0
     anneal_ratio = anneal_ratio if vae else 0
+    vae = vae if not wae else False
     ini = configparser.ConfigParser()
     config = {
         "filename": filename,
@@ -142,13 +145,14 @@ def main(
         "dim_rnn": dim_rnn,
         "dim_mlp": dim_mlp,
         "weight_props": weight_prop,
-        "weight_kld": weight_kld,
+        "weight_vae": weight_vae,
         "anneal_type": anneal_type,
         "anneal_cycle": anneal_cycle,
         "anneal_grow": anneal_grow,
         "anneal_ratio": anneal_ratio,
         "scaled_props": scale,
         "vae": vae,
+        "wae": wae,
     }
     config["alphabet"] = alphabet = len(t2i)
 
@@ -226,9 +230,9 @@ def main(
         + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
     )
 
-    # KLD weight annealing
+    # VAE loss weight annealing
     anneal = []
-    if vae:
+    if vae or wae:
         total_steps = epochs * (epoch_steps if random else len(train_loader))
         n_cycle = epochs // anneal_cycle
         if epochs % anneal_cycle:
@@ -253,9 +257,10 @@ def main(
             epoch,
             t2i,
             weight_prop,
-            weight_kld,
+            weight_vae,
             anneal,
             vae,
+            wae,
         )
         l_vs, l_vp, l_vk = validate_one_epoch(
             gnn,
@@ -268,8 +273,9 @@ def main(
             epoch * len(train_loader),
             t2i,
             weight_prop,
-            weight_kld * fk,
+            weight_vae * fk,
             vae,
+            wae,
         )
         dur = time.time() - time_start
         schedule.step()
@@ -286,14 +292,15 @@ def main(
             dataset.max_len,
             verbose=True,
             vae=vae,
+            wae=wae,
         )
         valid = len(valids) / n_sample
         writer.add_scalar("valid", valid, epoch * len(train_loader))
 
         print(
-            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss KLD.: {l_k:.3f}, "
-            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss KLD.: {l_vk:.3f}, "
-            + f"Weight KLD: {fk * weight_kld:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
+            f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss VAE.: {l_k:.3f}, "
+            + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss VAE.: {l_vk:.3f}, "
+            + f"Weight VAE: {fk * weight_vae:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
             + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 
@@ -305,13 +312,13 @@ def main(
 
 
 def train_one_epoch(
-    gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, wp, wk, asteps, vae
+    gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, wp, wk, asteps, vae, wae
 ):
     gnn.train(True)
     rnn.train(True)
     mlp.train(True)
     steps = len(train_loader)
-    total_loss, total_smls, total_props, total_kld, f_kld, step = 0, 0, 0, 0, 0, 0
+    total_loss, total_smls, total_props, total_vae, f_vae, step = 0, 0, 0, 0, 0, 0
     for g in tqdm(train_loader, desc="Training"):
         optimizer.zero_grad()
 
@@ -321,7 +328,7 @@ def train_one_epoch(
         trg = torch.transpose(trg, 0, 1)
 
         # get GNN embedding as input for RNN (h0) and FFNN
-        if vae:
+        if vae and not wae:
             mu, var = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
             hn = reparameterize(mu, var)
         else:
@@ -347,11 +354,13 @@ def train_one_epoch(
         props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(-1, pred_props.size(1))
         loss_props = torch.nan_to_num(criterion2(pred_props, props), nan=1e-6)
 
-        if vae:
+        if vae or wae:
             # combine losses in VAE style
-            f_kld = asteps[(epoch - 1) * steps + step]  # annealing
-            loss, loss_kld = loss_function(loss_mol, loss_props, mu, var, wk * f_kld, wp)
-            total_kld += loss_kld.cpu().detach().numpy()
+            if wae:
+                mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
+            f_vae = asteps[(epoch - 1) * steps + step]  # annealing)
+            loss, loss_vae = vae_loss_func(loss_mol, loss_props, mu, var, wk * f_vae, wp, wae)
+            total_vae += loss_vae.cpu().detach().numpy()
         else:
             # combine losses, apply desired weight to property loss
             loss = loss_mol + torch.multiply(loss_props, wp)
@@ -368,22 +377,22 @@ def train_one_epoch(
         writer.add_scalar("loss_train_total", total_loss / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
         writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
-        if vae:
-            writer.add_scalar("loss_train_kld", total_kld / step, (epoch - 1) * steps + step)
-            writer.add_scalar("kld_weight", wk * f_kld, (epoch - 1) * steps + step)
+        if vae or wae:
+            writer.add_scalar("loss_train_vae", total_vae / step, (epoch - 1) * steps + step)
+            writer.add_scalar("vae_weight", wk * f_vae, (epoch - 1) * steps + step)
         if step % 500 == 0:
             print(f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}")
 
-    return (total_smls / step, total_props / step, total_kld / step, f_kld)
+    return (total_smls / step, total_props / step, total_vae / step, f_vae)
 
 
 @torch.no_grad
-def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i, wp, wk, vae):
+def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i, wp, wk, vae, wae):
     gnn.train(False)
     rnn.train(False)
     mlp.train(False)
     steps = len(valid_loader)
-    total_total, total_smls, total_props, total_kld = 0, 0, 0, 0
+    total_total, total_smls, total_props, total_vae = 0, 0, 0, 0
     with torch.no_grad():
         for g in tqdm(valid_loader, desc="Validation"):
             # graph and target smiles
@@ -392,7 +401,7 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             trg = torch.transpose(trg, 0, 1)
 
             # build hidden and cell value inputs
-            if vae:
+            if vae and not wae:
                 mu, var = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
                 hn = reparameterize(mu, var)
             else:
@@ -416,9 +425,11 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
             props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(-1, pred_props.size(1))
             loss_props = criterion2(pred_props, props)
-            if vae:  # vae
-                loss, loss_kld = loss_function(mol_loss, total_props, mu, var, wk, wp)
-                total_kld += loss_kld.cpu().detach().numpy()
+            if vae or wae:  # vae
+                if wae:
+                    mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
+                loss, loss_vae = vae_loss_func(mol_loss, total_props, mu, var, wk, wp, wae)
+                total_vae += loss_vae.cpu().detach().numpy()
             else:  # just weighted
                 loss = mol_loss + torch.multiply(loss_props, wp)
 
@@ -431,9 +442,9 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
     writer.add_scalar("loss_val_total", total_total / steps, step)
     writer.add_scalar("loss_val_smiles", total_smls / steps, step)
     writer.add_scalar("loss_val_props", total_props / steps, step)
-    if vae:
-        writer.add_scalar("loss_val_kld", total_kld / steps, step)
-    return (total_smls / steps, total_props / steps, total_kld / steps)
+    if vae or wae:
+        writer.add_scalar("loss_val_vae", total_vae / steps, step)
+    return (total_smls / steps, total_props / steps, total_vae / steps)
 
 
 if __name__ == "__main__":

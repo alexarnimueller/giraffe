@@ -16,6 +16,8 @@ An overview of the architecture and training logic of Giraffe looks as follows:
 
 <img src="examples/figures/net.png" width="600"/>
 
+> **_NOTE:_**  If the `--no-vae` or `--wae` flags are used during training, the encoder only outputs a single vector.
+
 ## Quick start
 ### Anaconda Environment
 All packages needed to use GIRAFFE are provided in `environment.yml`. To create a new Anaconda environment from it, run the following:
@@ -28,21 +30,24 @@ Training a new model on a file with SMILES strings can be achieved as follows:
 ```bash
 python train.py data/100k.smi
 ```
-The call above will train a VAE. To train a traditional autoencoder, use the `--no-vae` flag.
+The call above will train a VAE. To train a traditional autoencoder, use the `--no-vae` flag. It is also possible to train a Wasserstein autoencoder (WAE) using the maximum mean discrepancy in inverse multiquadratic kernel space to match the encoder distribution with a gaussian. Use the `--wae` flag to train a MMD WAE. 
 
 To get all the options, call `python train.py --help`:
 ```
 Usage: train.py [OPTIONS] FILENAME
 
 Options:
-  -n, --run_name TEXT           Name of the run for saving (filename if omitted).
+  -n, --run_name TEXT           Name of the run for saving (filename if
+                                omitted).
   -d, --delimiter TEXT          Column delimiter of input file.
   -c, --smls_col TEXT           Name of column that contains SMILES.
   -e, --epochs INTEGER          Nr. of epochs to train.
   -o, --dropout FLOAT           Dropout fraction.
   -b, --batch_size INTEGER      Number of molecules per batch.
-  -r, --random                  Randomly sample molecules in each training step.
-  -p, --props TEXT              Comma-seperated list of descriptors to use. All, if omitted
+  -r, --random                  Randomly sample molecules in each training
+                                step.
+  -p, --props TEXT              Comma-seperated list of descriptors to use.
+                                All, if omitted
   --epoch_steps, --es INTEGER   If random, number of batches per epoch.
   -v, --val FLOAT               Fraction of the data to use for validation.
   -l, --lr FLOAT                Learning rate.
@@ -60,12 +65,19 @@ Options:
   --dim_tok, --dt INTEGER       Dimension of RNN token embedding
   --dim_mlp, --dm INTEGER       Hidden dimension of MLP layers
   --weight_prop, --wp FLOAT     Factor for weighting property loss in VAE loss
-  --weight_kld, --wk FLOAT      Factor for weighting KL divergence loss in VAE loss
+  --weight_vae, --wk FLOAT      Factor for weighting KL divergence loss in VAE
+                                loss
   --anneal_type, --at TEXT      Shape of cyclical annealing: linear or sigmoid
-  --anneal_cycle, --ac INTEGER  Number of epochs for one KLD annealing cycle
-  --anneal_grow, --ag INTEGER   Number of annealing cycles with increasing values
-  --anneal_ratio, --ar FLOAT    Fraction of annealing vs. constant KLD weight
-  --vae / --no-vae              Whether to train a VAE or only AE
+  --anneal_cycle, --ac INTEGER  Number of epochs for one VAE loss annealing
+                                cycle
+  --anneal_grow, --ag INTEGER   Number of annealing cycles with increasing
+                                values
+  --anneal_ratio, --ar FLOAT    Fraction of annealing vs. constant VAE loss
+                                weight
+  --vae / --no-vae              Whether to train a variational AE or classical
+                                AE
+  --wae / --no-wae              Whether to train a Wasserstein autoencoder
+                                using MMD
   --scale / --no-scale          Whether to scale all properties from 0 to 1
   --n_proc, --np INTEGER        Number of CPU processes to use
   --help                        Show this message and exit.
@@ -156,17 +168,17 @@ Options:
   -t, --temp FLOAT             Temperature to use during SMILES sampling.
   -ns, --n_sample INTEGER      Nr. SMILES to sample after each trainin epoch.
   -wp, --weight_prop FLOAT     Factor for weighting property loss in VAE loss
-  -wp, --weight_kld FLOAT      Factor for weighting KL divergence loss in VAE loss
-  -ac, --anneal_cycle INTEGER  Number of epochs for one KLD annealing cycle
+  -wk, --weight_vae FLOAT      Factor for weighting VAE loss
+  -ac, --anneal_cycle INTEGER  Number of epochs for one VAE loss annealing cycle
   -ag, --anneal_grow INTEGER   Number of annealing cycles with increasing values
-  -ar, --anneal_ratio FLOAT    Fraction of annealing vs. constant KLD weight
+  -ar, --anneal_ratio FLOAT    Fraction of annealing vs. constant VAE loss weight
   --vae / --no-vae             Whether to train a VAE or only AE
   --scale / --no-scale         Whether to scale all properties from 0 to 1
   -p, --n_proc INTEGER         Number of CPU processes to use
   --help                       Show this message and exit.
 ```
 
-## KLD Annealing
+## VAE Loss Annealing
 In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's an example of how the schedule looks for the two best performing cyclical annealing strategies for β values during training. Top (red): Linear increase over `4` cycles with cycle sizes of `10’000` steps with `7’500` increasing and `2’500` constant steps. Bottom (blue): Sigmoidal increase over `20` cycles with cycle sizes of `5’000` steps with `3’750` increasing and `1’250` constant steps. Both strategies were allowed to reach a maximum β value of `0.2`, and performed best in the tested benchmarks at the step indicated by a dashed line.
 
 <img src="examples/figures/annealing_cyclical.png" alt="annealing" width="400"/>
@@ -177,6 +189,15 @@ Adapted from https://github.com/haofuml/cyclical_annealing
 To benchmark the obtained representation, use `benchmark.py`. 
 It relies on the [Chembench](https://github.com/shenwanxiang/ChemBench) repository, and optionally on the [CDDD](https://github.com/jrwnter/cddd) repository. 
 Please follow the installation instructions described in their READMEs.
+
+### Polaris Benchmark
+GIRAFFE also contains a script for benchmark datasets hosted on the [Polaris Hub](https://polarishub.io/). 
+
+First, login to the polaris hub by running the command `polaris login`. Then adapt the benchmark datasets in `examples/benchmark_polaris.py` and finally run the script using your desired model checkpoint:
+
+```bash
+python examples/benchmark_polaris.py -m models/pub_vae_sig/atfp_70.pt <polaris username>
+```
 
 ## Examples
 The `examples` folder contains various scripts with examples on how to use the trained GIRAFFE models. Some examples reproduce figures presented in the corresponding publication. 

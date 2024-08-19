@@ -36,6 +36,7 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
     dim_atom, dim_bond = get_input_dims()
     conf = read_config_ini(checkpoint)
     vae = conf["vae"] == "True"
+    wae = conf["wae"] == "True"
 
     if smiles is not None:
         if "," not in smiles:
@@ -79,6 +80,7 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
         num_mols=num,
         maxlen=maxlen,
         vae=vae,
+        wae=wae,
         inter=interpolate,
         random=random,
         parent=parent,
@@ -87,9 +89,9 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
 
     # Save predictions
     if parent:
-        df = pd.DataFrame({"SMILES": smls, "log-likelihood": probs_abs, "Parent": parents})
+        df = pd.DataFrame({"SMILES": smls, "Parent": parents})
     else:
-        df = pd.DataFrame({"SMILES": smls, "log-likelihood": probs_abs})
+        df = pd.DataFrame({"SMILES": smls})
     if os.path.dirname(out):
         os.makedirs(os.path.dirname(out), exist_ok=True)
     df.to_csv(out, index=False)
@@ -98,7 +100,18 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
 
 @torch.no_grad
 def temperature_sampling(
-    gnn, rnn, temp, smiles, num_mols, maxlen, vae=True, verbose=False, inter=False, random=False, parent=False
+    gnn,
+    rnn,
+    temp,
+    smiles,
+    num_mols,
+    maxlen,
+    vae=True,
+    wae=False,
+    verbose=False,
+    inter=False,
+    random=False,
+    parent=False,
 ):
     gnn.eval()
     rnn.eval()
@@ -125,7 +138,7 @@ def temperature_sampling(
         g_end = dataset[1][0].to(DEVICE)
         g_start.batch = torch.tensor([0] * g_start.num_nodes).to(DEVICE)
         g_end.batch = torch.tensor([0] * g_end.num_nodes).to(DEVICE)
-        if vae:
+        if vae and not wae:
             hn_s, _ = gnn(g_start.atoms, g_start.edge_index, g_start.bonds, g_start.batch)
             hn_e, _ = gnn(g_end.atoms, g_end.edge_index, g_end.bonds, g_end.batch)
         else:
@@ -144,7 +157,7 @@ def temperature_sampling(
             # initialize RNN hiddens with GNN features and cell states with 0
             score = 0
             step, stop = 0, False
-            if vae:
+            if vae and not wae:
                 mu, var = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
                 hn = reparameterize(mu, var)
             else:

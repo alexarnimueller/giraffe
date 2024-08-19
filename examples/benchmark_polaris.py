@@ -26,22 +26,27 @@ logger.setLevel(logging.INFO)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BENCHMARKS = [
-    "graphium/tox21-v1",
-    "graphium/zinc12k-v1",
-    "polaris/adme-fang-r-1",
-    "polaris/adme-fang-PERM-1",
-    "polaris/adme-fang-SOLU-1",
-    "polaris/adme-fang-RPPB-1",
-    "novartis/adme-novartis-cyp3a4-reg",
-    "biogen/adme-fang-reg-v1",
+    # "graphium/tox21-v1",
+    # "graphium/zinc12k-v1",
+    # "polaris/adme-fang-r-1",
+    # "polaris/adme-fang-PERM-1",
+    # "polaris/adme-fang-SOLU-1",
+    # "polaris/adme-fang-RPPB-1",
+    # "polaris/adme-fang-HPPB-1",
+    # "novartis/adme-novartis-cyp3a4-reg",
+    # "tdcommons/clearance-hepatocyte-az",
+    "tdcommons/cyp3a4-substrate-carbonmangels",
+    "tdcommons/solubility-aqsoldb",
 ]
 
 
 class BenchmarkDataset(Dataset):
-    def __init__(self, features, labels=None, testing=False):
+    def __init__(self, features: np.ndarray, labels=None, testing=False):
         super().__init__()
         self.features = features
         self.labels = labels
+        if labels is not None and len(labels.shape) == 1:
+            self.labels = labels.reshape(-1, 1).astype(float)
         self.testing = testing
 
     def __len__(self):
@@ -142,7 +147,7 @@ def eval_one_epoch(model, valid_loader, classification=False):
     return total_loss / len(valid_loader)
 
 
-def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
+def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs):
     giraffe = GiraffeFeaturizer(giraffe_model_ckpt, True, n_jobs=n_jobs)
 
     logger.info(f"Downloading and featurizing {dataset}...")
@@ -231,7 +236,7 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
             {k: v.values.flatten() for k, v in cls.items()}, {k: v.values.flatten() for k, v in probs.items()}
         )
 
-    results.name = dataset.split("/")[-1] + "-GIRAFFE"
+    results.name = dataset.split("/")[-1] + "-GIRAFFE-" + run_name
     results.github_url = "https://github.com/alexarnimueller/giraffe"
     results.paper_url = "https://openreview.net/forum?id=7WYcOGds6R"
     results.description = "GIRAFFE embeddings with a MLP."
@@ -247,19 +252,20 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
     default="models/big_sig/atfp_45.pt",
     help="Checkpoint of the trained Giraffe model.",
 )
+@click.option("-n", "--run_name", default="benchmark", help="Name of the run.")
 @click.option("-e", "--max_epochs", default=500, help="Maximum number of epochs to train.")
 @click.option("-p", "--patience", default=10, help="Early stopping patience (epochs).")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate for the optimizer.")
 @click.option("-b", "--batch_size", default=128, help="Batch size for model training.")
 @click.option("-j", "--n_jobs", default=8, help="Number of cores to use for data loader.")
-def main(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs):
+def main(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs):
     if dataset is not None:
         print(f"Running benchmark for {dataset}")
-        cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
+        cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs)
     else:
         for dataset in BENCHMARKS:
             print(f"Running benchmark for {dataset}")
-            cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, n_jobs)
+            cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs)
 
 
 if __name__ == "__main__":
