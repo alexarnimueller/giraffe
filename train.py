@@ -21,8 +21,7 @@ from model import (
     LSTM,
     AttentiveFP,
     AttentiveFP2,
-    anneal_cycle_linear,
-    anneal_cycle_sigmoid,
+    create_annealing_schedule,
     reparameterize,
     vae_loss_func,
 )
@@ -63,7 +62,13 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("--dim_mlp", "--dm", default=512, help="Hidden dimension of MLP layers")
 @click.option("--weight_prop", "--wp", default=20.0, help="Factor for weighting property loss in VAE loss")
 @click.option("--weight_vae", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
-@click.option("--anneal_type", "--at", default="linear", help="Shape of cyclical annealing: linear or sigmoid")
+@click.option(
+    "--anneal_type",
+    "--at",
+    default="sigmoid",
+    help="Shape of VAE weight annealing: constant, linear, sigmoid, cyc_linear, cyc_sigmoid, cyc_sigmoid_lin",
+)
+@click.option("--anneal_start", "--as", default=10, help="Epoch at which to start VAE loss annealing.")
 @click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
 @click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
 @click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE loss weight")
@@ -100,6 +105,7 @@ def main(
     weight_prop,
     weight_vae,
     anneal_type,
+    anneal_start,
     anneal_cycle,
     anneal_grow,
     anneal_ratio,
@@ -147,6 +153,7 @@ def main(
         "weight_props": weight_prop,
         "weight_vae": weight_vae,
         "anneal_type": anneal_type,
+        "anneal_start": anneal_start,
         "anneal_cycle": anneal_cycle,
         "anneal_grow": anneal_grow,
         "anneal_ratio": anneal_ratio,
@@ -231,21 +238,20 @@ def main(
     )
 
     # VAE loss weight annealing
-    anneal = []
-    if vae or wae:
-        total_steps = epochs * (epoch_steps if random else len(train_loader))
-        n_cycle = epochs // anneal_cycle
-        if epochs % anneal_cycle:
-            n_cycle += epochs % anneal_cycle
-        if anneal_type == "linear":
-            anneal = anneal_cycle_linear(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
-        elif anneal_type == "sigmoid":
-            anneal = anneal_cycle_sigmoid(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
+    anneal = create_annealing_schedule(
+        epochs,
+        epoch_steps if random else len(train_loader),
+        anneal_start,
+        anneal_cycle,
+        anneal_grow,
+        anneal_ratio,
+        anneal_type,
+    )
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
         time_start = time.time()
-        l_s, l_p, l_k, fk = train_one_epoch(
+        l_s, l_p, l_k, fv = train_one_epoch(
             gnn,
             rnn,
             mlp,
@@ -273,7 +279,7 @@ def main(
             epoch * len(train_loader),
             t2i,
             weight_prop,
-            weight_vae * fk,
+            weight_vae * fv,
             vae,
             wae,
         )
@@ -300,7 +306,7 @@ def main(
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss VAE.: {l_k:.3f}, "
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss VAE.: {l_vk:.3f}, "
-            + f"Weight VAE: {fk * weight_vae:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
+            + f"Weight VAE: {fv * weight_vae:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
             + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 
@@ -359,7 +365,7 @@ def train_one_epoch(
             if wae:
                 mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
             f_vae = asteps[(epoch - 1) * steps + step]  # annealing)
-            loss, loss_vae = vae_loss_func(loss_mol, loss_props, mu, var, wk * f_vae, wp, wae)
+            loss, loss_vae = vae_loss_func(loss_mol / j, loss_props, mu, var, wk * f_vae, wp, wae)
             total_vae += loss_vae.cpu().detach().numpy()
         else:
             # combine losses, apply desired weight to property loss
@@ -383,7 +389,7 @@ def train_one_epoch(
         if step % 500 == 0:
             print(f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}")
 
-    return (total_smls / step, total_props / step, total_vae / step, f_vae)
+    return (total_smls / steps, total_props / steps, total_vae / steps, f_vae)
 
 
 @torch.no_grad
@@ -428,7 +434,7 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             if vae or wae:  # vae
                 if wae:
                     mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
-                loss, loss_vae = vae_loss_func(mol_loss, total_props, mu, var, wk, wp, wae)
+                loss, loss_vae = vae_loss_func(mol_loss / j, total_props, mu, var, wk, wp, wae)
                 total_vae += loss_vae.cpu().detach().numpy()
             else:  # just weighted
                 loss = mol_loss + torch.multiply(loss_props, wp)

@@ -62,9 +62,9 @@ def batchify(iterable, batch_size):
         yield batch
 
 
-def cv(dataset, summary_df, giraffe_model_ckpt, run_name, vae):
+def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
     df, indices = get_data(dataset)
-    giraffe = GiraffeFeaturizer(giraffe_model_ckpt, vae)
+    giraffe = GiraffeFeaturizer(giraffe_model_ckpt)
     # ecfp = MorganFPFeaturizer(fp_size=2048, radius=2, use_counts=True, use_features=False)
     # rdkit_norm = PhysChemFeaturizer(normalise=True)
 
@@ -157,15 +157,14 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name, vae):
     help="Checkpoint of the trained Giraffe model.",
 )
 @click.option("-n", "--name", default=None, help="Name of the benchmark run.")
-@click.option("-v", "--vae", is_flag=True, help="Sampling from a VAE model with mu and std.")
-def main(giraffe_model_ckpt, name, vae):
+def main(giraffe_model_ckpt, name):
     if not name:
         name = datetime.now().strftime("%Y-%m-%dT%H%M%S")
     summary_df = get_summary_df()
 
     for dataset in summary_df["task_name"].unique():
         print(f"Running experiment for {dataset}")
-        cv(dataset, summary_df, giraffe_model_ckpt, name, vae)
+        cv(dataset, summary_df, giraffe_model_ckpt, name)
 
 
 if __name__ == "__main__":

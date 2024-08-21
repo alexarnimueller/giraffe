@@ -29,9 +29,9 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_sig")
 @click.option("-j", "--n_jobs", default=6)
 @click.option("-t", "--tsne", is_flag=True, default=False)
-@click.option("-x", "--perplex", default=40)
+@click.option("-x", "--perplex", default=30)
 def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, perplex):
-    smls, embs = embed_file(filename, delim, smls_col, checkpoint, epoch, 512, n_mols, n_jobs)
+    smls, embs = embed_file(filename, delim, smls_col, None, checkpoint, epoch, 512, n_mols, n_jobs, False, None)
     # properties
     print("Calculating properties")
     sclr = PropertyScaler(["MolWt", "MolLogP", "qed", "NumHDonors", "NumAromaticRings", "FractionCSP3"], do_scale=True)

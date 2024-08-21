@@ -981,7 +981,6 @@ class GiraffeFeaturizer:
     def __init__(
         self,
         checkpoint_path: str,
-        vae: bool = False,
         n_jobs: int = 4,
         device: str = None,
     ) -> None:
@@ -995,14 +994,14 @@ class GiraffeFeaturizer:
         self.model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.dirname(checkpoint_path)))
         self.device = device or "cuda" if torch.cuda.is_available() else "cpu"
         self.dim_atom, self.dim_bond = get_input_dims()
-        self.vae = vae
         self.n_jobs = n_jobs
 
         # read config file
         conf = read_config_ini(self.model_dir)
+        self.vae = conf["vae"] == "True"
 
         # define model structure
-        GNN_Class = AttentiveFP2 if vae else AttentiveFP
+        GNN_Class = AttentiveFP2 if self.vae else AttentiveFP
         self.model = GNN_Class(
             in_channels=self.dim_atom,
             hidden_channels=conf["dim_gnn"],

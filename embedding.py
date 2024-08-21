@@ -26,7 +26,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-i", "--id_col", default=None, help="Name of column that contains compound IDs.")
 @click.option("-f", "--folder", default="models/pub_vae_sig", help="Checkpoint folder to load models from.")
 @click.option("-e", "--epoch", default=70, help="Epoch of models to load.")
-@click.option("-b", "--batch_size", default=512, help="Batch size to use for embedding.")
+@click.option("-b", "--batch_size", default=256, help="Batch size to use for embedding.")
 @click.option("-n", "--n_mols", default=0, help="Number of molecules to randomly sub-sample. Default: 0 = all")
 @click.option("-j", "--n_jobs", default=4, help="Number of cores to use for data loader.")
 @click.option("-x", "--prec", default=4, help="Float precision")

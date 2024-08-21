@@ -346,15 +346,15 @@ def compute_mmd(z):
     return lamb * kern_pz.mean() + lamb * kern_z.mean() - 2 / (z.size(0) ** 2) * kern_pz_z.mean()
 
 
-def anneal_cycle_linear(n_iter, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
-    w = np.ones(n_iter) * stop
-    period = n_iter / n_cycle
+def anneal_cycle_linear(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
+    w = np.ones(n_steps) * stop
+    period = int(n_steps / n_cycle)
 
     for c in range(n_cycle):
         stop_cur = min(stop, stop * (c + 1) / (n_grow + 1)) if n_grow else stop
         step = (stop_cur - start) / (period * ratio)  # linear schedule
         v, i = start, 0
-        while v <= stop_cur and (int(i + c * period) < n_iter):
+        while v <= stop_cur and (int(i + c * period) < n_steps):
             w[int(i + c * period)] = v
             v += step
             i += 1
@@ -362,17 +362,67 @@ def anneal_cycle_linear(n_iter, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=
     return w
 
 
-def anneal_cycle_sigmoid(n_iter, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
-    w = np.ones(n_iter)
-    period = n_iter / n_cycle
+def anneal_cycle_sigmoid(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
+    w = np.ones(n_steps)
+    period = int(n_steps / n_cycle)
 
     for c in range(n_cycle):
         stop_cur = min(stop, stop * (c + 1) / (n_grow + 1)) if n_grow else stop
         step = (stop_cur - start) / (period * ratio)
         v, i = start, 0
-        while v <= stop_cur and (int(i + c * period) < n_iter):
+        while v <= stop_cur and (int(i + c * period) < n_steps):
             w[int(i + c * period)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
             v += step
             i += 1
         w[int(i + c * period) : int((c + 1) * period + 1)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
     return w
+
+
+def anneal_cycle_sigmoid_lin(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, slope=1.5):
+    w = []
+    period = int(n_steps / n_cycle)
+    for c in range(n_cycle):
+        stop_cur = min(stop, stop * (c + 1) / (n_grow + 1)) if n_grow else stop
+        x = np.linspace(0, 1, period)
+        curve = start + (stop_cur - start) / (1 + 1000 ** (-slope * (x - 0.5)))
+        w.extend(curve.tolist())
+    return np.array(w)
+
+
+def anneal_const_linear(n_iter, start=0.0, stop=1.0):
+    return np.linspace(start, stop, n_iter)
+
+
+def anneal_const_sigmoid(n_iter, start=0.0, stop=1.0, slope=1.5):
+    x = np.linspace(0, 1, n_iter)
+    return start + (stop - start) / (1 + 1000 ** (-slope * (x - 0.5)))
+
+
+def create_annealing_schedule(epochs, epoch_steps, anneal_start, anneal_cycle, anneal_grow, anneal_ratio, anneal_type):
+    anneal = np.zeros(anneal_start * epoch_steps)
+    total_steps = (epochs - anneal_start) * epoch_steps
+    n_cycle = (epochs - anneal_start) // anneal_cycle
+    if (epochs - anneal_start) % anneal_cycle:
+        n_cycle += 1
+    if anneal_type == "cyc_linear":
+        anneal = np.concatenate(
+            (anneal, anneal_cycle_linear(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio))
+        ).flatten()
+    elif anneal_type == "cyc_sigmoid":
+        anneal = np.concatenate(
+            (anneal, anneal_cycle_sigmoid(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio))
+        ).flatten()
+    elif anneal_type == "cyc_sigmoid_lin":
+        anneal = np.concatenate(
+            (anneal, anneal_cycle_sigmoid_lin(total_steps, n_cycle=n_cycle, n_grow=anneal_grow))
+        ).flatten()
+    elif anneal_type == "linear":
+        anneal = np.concatenate((anneal, anneal_const_linear(total_steps))).flatten()
+    elif anneal_type == "sigmoid":
+        anneal = np.concatenate((anneal, anneal_const_sigmoid(total_steps))).flatten()
+    elif anneal_type == "constant":
+        anneal = np.concatenate((anneal, np.ones(total_steps))).flatten()
+    else:
+        raise NotImplementedError(f"Annealing type {anneal_type} not implemented.")
+
+    return anneal

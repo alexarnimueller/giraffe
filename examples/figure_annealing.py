@@ -82,7 +82,7 @@ def main():
     # X-axis label
     plt.xticks(
         list(range(0, steps + 10000, 10000)),
-        (f"{10*i}k" for i in range(0, int(steps / 10000) + 1)),
+        (f"{10 * i}k" for i in range(0, int(steps / 10000) + 1)),
         color="k",
         size=14,
         rotation=45,

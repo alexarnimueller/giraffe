@@ -26,17 +26,14 @@ logger.setLevel(logging.INFO)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BENCHMARKS = [
-    # "graphium/tox21-v1",
-    # "graphium/zinc12k-v1",
-    # "polaris/adme-fang-r-1",
-    # "polaris/adme-fang-PERM-1",
-    # "polaris/adme-fang-SOLU-1",
-    # "polaris/adme-fang-RPPB-1",
-    # "polaris/adme-fang-HPPB-1",
-    # "novartis/adme-novartis-cyp3a4-reg",
-    # "tdcommons/clearance-hepatocyte-az",
-    "tdcommons/cyp3a4-substrate-carbonmangels",
-    "tdcommons/solubility-aqsoldb",
+    "graphium/tox21-v1",
+    "graphium/zinc12k-v1",
+    "polaris/adme-fang-r-1",
+    "polaris/adme-fang-PERM-1",
+    "polaris/adme-fang-SOLU-1",
+    "polaris/adme-fang-RPPB-1",
+    "polaris/adme-fang-HPPB-1",
+    "novartis/adme-novartis-cyp3a4-reg",
 ]
 
 
@@ -148,7 +145,7 @@ def eval_one_epoch(model, valid_loader, classification=False):
 
 
 def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs):
-    giraffe = GiraffeFeaturizer(giraffe_model_ckpt, True, n_jobs=n_jobs)
+    giraffe = GiraffeFeaturizer(giraffe_model_ckpt, n_jobs=n_jobs)
 
     logger.info(f"Downloading and featurizing {dataset}...")
     benchmark, smls, y, smls_test = get_data(dataset)

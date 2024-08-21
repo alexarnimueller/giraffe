@@ -15,14 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 
 from dataset import AttFPDataset, AttFPTableDataset, load_from_fname, tokenizer
-from model import (
-    FFNN,
-    LSTM,
-    AttentiveFP,
-    AttentiveFP2,
-    anneal_cycle_linear,
-    anneal_cycle_sigmoid,
-)
+from model import FFNN, LSTM, AttentiveFP, AttentiveFP2, create_annealing_schedule
 from sampling import temperature_sampling
 from train import train_one_epoch, validate_one_epoch
 from utils import get_input_dims, mse_with_nans, read_config_ini
@@ -55,7 +48,13 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("--n_sample", "--ns", default=100, help="Nr. SMILES to sample after each trainin epoch.")
 @click.option("--weight_prop", "--wp", default=10.0, help="Factor for weighting property loss in VAE loss")
 @click.option("--weight_vae", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
-@click.option("--anneal_type", "--at", default="linear", help="Shape of cyclical annealing: linear or sigmoid")
+@click.option(
+    "--anneal_type",
+    "--at",
+    default="sigmoid",
+    help="Shape of VAE weight annealing: constant, linear, sigmoid, cyc_linear, cyc_sigmoid, cyc_sigmoid_lin",
+)
+@click.option("--anneal_start", "--as", default=0, help="Epoch at which to start VAE loss annealing.")
 @click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
 @click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
 @click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE weight")
@@ -87,6 +86,7 @@ def main(
     anneal_cycle,
     anneal_grow,
     anneal_ratio,
+    anneal_start,
     anneal_type,
     vae,
     scale,
@@ -213,13 +213,15 @@ def main(
     )
 
     # VAE loss weight annealing
-    anneal = []
-    if vae:
-        total_steps = epochs * (epoch_steps if random else len(train_loader))
-        if anneal_type == "linear":
-            anneal = anneal_cycle_linear(total_steps, n_cycle=anneal_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
-        elif anneal_type == "sigmoid":
-            anneal = anneal_cycle_sigmoid(total_steps, n_cycle=anneal_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
+    anneal = create_annealing_schedule(
+        epochs,
+        epoch_steps if random else len(train_loader),
+        anneal_start,
+        anneal_cycle,
+        anneal_grow,
+        anneal_ratio,
+        anneal_type,
+    )
 
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")

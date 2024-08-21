@@ -9,6 +9,7 @@ dependencies:
   - configparser
   - ipython 
   - matplotlib
+  - opentsne
   - pip  
   - polaris
   - pyg=*=*cu121
