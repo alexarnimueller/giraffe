@@ -36,7 +36,10 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
     dim_atom, dim_bond = get_input_dims()
     conf = read_config_ini(checkpoint)
     vae = conf["vae"] == "True"
-    wae = conf["wae"] == "True"
+    if "wae" not in conf.keys():
+        wae = False
+    else:
+        wae = conf["wae"] == "True"
 
     if smiles is not None:
         if "," not in smiles:
