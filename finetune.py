@@ -55,10 +55,10 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     help="Shape of VAE weight annealing: constant, linear, sigmoid, cyc_linear, cyc_sigmoid, cyc_sigmoid_lin",
 )
 @click.option("--anneal_start", "--as", default=0, help="Epoch at which to start VAE loss annealing.")
+@click.option("--anneal_stop", "--ao", default=None, help="Epoch at which to stop VAE loss annealing (stay const.)")
 @click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
 @click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
 @click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE weight")
-@click.option("--vae/--no-vae", default=True, help="Whether to train a VAE or only AE")
 @click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
 @click.option("--n_proc", "--np", default=6, help="Number of CPU processes to use")
 def main(
@@ -87,8 +87,8 @@ def main(
     anneal_grow,
     anneal_ratio,
     anneal_start,
+    anneal_stop,
     anneal_type,
-    vae,
     scale,
     n_proc,
 ):
@@ -102,10 +102,12 @@ def main(
     conf = read_config_ini(checkpoint)
 
     # Write parameters to config file and define variables
-    weight_vae = weight_vae if vae else 0.0
-    anneal_cycle = anneal_cycle if vae else 0
-    anneal_grow = anneal_grow if vae else 0.0
-    anneal_ratio = anneal_ratio if vae else 0
+    vae, wae = conf["vae"], conf["wae"]
+    weight_vae = weight_vae if (vae or wae) else 0.0
+    anneal_cycle = anneal_cycle if (vae or wae) else 0
+    anneal_grow = anneal_grow if (vae or wae) else 0.0
+    anneal_ratio = anneal_ratio if (vae or wae) else 0
+    vae = vae if not wae else False
     ini = configparser.ConfigParser()
     config = {
         "filename": filename,
@@ -136,6 +138,7 @@ def main(
         "anneal_cycle": anneal_cycle,
         "scaled_props": scale,
         "vae": vae,
+        "wae": wae,
     }
 
     content = load_from_fname(filename, smls_col=smls_col, delimiter=delimiter)
@@ -213,10 +216,12 @@ def main(
     )
 
     # VAE loss weight annealing
+    anneal_stop = epochs if anneal_stop is None else anneal_stop
     anneal = create_annealing_schedule(
         epochs,
         epoch_steps if random else len(train_loader),
         anneal_start,
+        anneal_stop,
         anneal_cycle,
         anneal_grow,
         anneal_ratio,
@@ -242,6 +247,7 @@ def main(
             weight_vae,
             anneal,
             vae,
+            wae,
         )
         l_vs, l_vp, l_vk = validate_one_epoch(
             gnn,
@@ -256,6 +262,7 @@ def main(
             weight_prop,
             weight_vae * fk,
             vae,
+            wae,
         )
         dur = time.time() - time_start
         schedule.step()

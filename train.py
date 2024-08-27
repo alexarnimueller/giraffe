@@ -69,6 +69,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     help="Shape of VAE weight annealing: constant, linear, sigmoid, cyc_linear, cyc_sigmoid, cyc_sigmoid_lin",
 )
 @click.option("--anneal_start", "--as", default=10, help="Epoch at which to start VAE loss annealing.")
+@click.option("--anneal_stop", "--ao", default=None, help="Epoch at which to stop VAE loss annealing (stay const.)")
 @click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
 @click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
 @click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE loss weight")
@@ -106,6 +107,7 @@ def main(
     weight_vae,
     anneal_type,
     anneal_start,
+    anneal_stop,
     anneal_cycle,
     anneal_grow,
     anneal_ratio,
@@ -121,10 +123,10 @@ def main(
     dim_atom, dim_bond = get_input_dims()
 
     # Write parameters to config file and define variables
-    weight_vae = weight_vae if vae else 0.0
-    anneal_cycle = anneal_cycle if vae else 0
-    anneal_grow = anneal_grow if vae else 0.0
-    anneal_ratio = anneal_ratio if vae else 0
+    weight_vae = weight_vae if (vae or wae) else 0.0
+    anneal_cycle = anneal_cycle if (vae or wae) else 0
+    anneal_grow = anneal_grow if (vae or wae) else 0.0
+    anneal_ratio = anneal_ratio if (vae or wae) else 0
     vae = vae if not wae else False
     ini = configparser.ConfigParser()
     config = {
@@ -238,10 +240,12 @@ def main(
     )
 
     # VAE loss weight annealing
+    anneal_stop = epochs if anneal_stop is None else anneal_stop
     anneal = create_annealing_schedule(
         epochs,
         epoch_steps if random else len(train_loader),
         anneal_start,
+        anneal_stop,
         anneal_cycle,
         anneal_grow,
         anneal_ratio,
@@ -434,7 +438,7 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             if vae or wae:  # vae
                 if wae:
                     mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
-                loss, loss_vae = vae_loss_func(mol_loss / j, total_props, mu, var, wk, wp, wae)
+                loss, loss_vae = vae_loss_func(mol_loss / j, loss_props, mu, var, wk, wp, wae)
                 total_vae += loss_vae.cpu().detach().numpy()
             else:  # just weighted
                 loss = mol_loss + torch.multiply(loss_props, wp)

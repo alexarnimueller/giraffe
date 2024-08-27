@@ -5,6 +5,7 @@ logs/
 output/
 data/*prop*
 Roche/
+examples/figures/*
 
 Thumbs.db
 

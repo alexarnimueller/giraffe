@@ -398,31 +398,31 @@ def anneal_const_sigmoid(n_iter, start=0.0, stop=1.0, slope=1.5):
     return start + (stop - start) / (1 + 1000 ** (-slope * (x - 0.5)))
 
 
-def create_annealing_schedule(epochs, epoch_steps, anneal_start, anneal_cycle, anneal_grow, anneal_ratio, anneal_type):
+def create_annealing_schedule(
+    epochs, epoch_steps, anneal_start, anneal_stop, anneal_cycle, anneal_grow, anneal_ratio, anneal_type
+):
+    anneal_stop = min(anneal_stop, epochs)
+    total_steps = (anneal_stop - anneal_start) * epoch_steps
+    n_cycle = (anneal_stop - anneal_start) // anneal_cycle
+
     anneal = np.zeros(anneal_start * epoch_steps)
-    total_steps = (epochs - anneal_start) * epoch_steps
-    n_cycle = (epochs - anneal_start) // anneal_cycle
-    if (epochs - anneal_start) % anneal_cycle:
+    if (total_steps / epoch_steps) % anneal_cycle:
         n_cycle += 1
     if anneal_type == "cyc_linear":
-        anneal = np.concatenate(
-            (anneal, anneal_cycle_linear(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio))
-        ).flatten()
+        ann_sched = anneal_cycle_linear(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
     elif anneal_type == "cyc_sigmoid":
-        anneal = np.concatenate(
-            (anneal, anneal_cycle_sigmoid(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio))
-        ).flatten()
+        ann_sched = anneal_cycle_sigmoid(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
     elif anneal_type == "cyc_sigmoid_lin":
-        anneal = np.concatenate(
-            (anneal, anneal_cycle_sigmoid_lin(total_steps, n_cycle=n_cycle, n_grow=anneal_grow))
-        ).flatten()
+        ann_sched = anneal_cycle_sigmoid_lin(total_steps, n_cycle=n_cycle, n_grow=anneal_grow)
     elif anneal_type == "linear":
-        anneal = np.concatenate((anneal, anneal_const_linear(total_steps))).flatten()
+        ann_sched = anneal_const_linear(total_steps)
     elif anneal_type == "sigmoid":
-        anneal = np.concatenate((anneal, anneal_const_sigmoid(total_steps))).flatten()
+        ann_sched = anneal_const_sigmoid(total_steps)
     elif anneal_type == "constant":
-        anneal = np.concatenate((anneal, np.ones(total_steps))).flatten()
+        ann_sched = np.ones(total_steps)
     else:
         raise NotImplementedError(f"Annealing type {anneal_type} not implemented.")
-
+    anneal = np.concatenate((anneal, ann_sched)).flatten()
+    if anneal_stop < epochs:
+        anneal = np.concatenate((anneal, np.ones((epochs - anneal_stop) * epoch_steps))).flatten()
     return anneal

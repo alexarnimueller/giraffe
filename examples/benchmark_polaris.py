@@ -26,14 +26,14 @@ logger.setLevel(logging.INFO)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BENCHMARKS = [
-    "graphium/tox21-v1",
-    "graphium/zinc12k-v1",
+    # "graphium/tox21-v1",
+    # "graphium/zinc12k-v1",
     "polaris/adme-fang-r-1",
-    "polaris/adme-fang-PERM-1",
-    "polaris/adme-fang-SOLU-1",
-    "polaris/adme-fang-RPPB-1",
-    "polaris/adme-fang-HPPB-1",
-    "novartis/adme-novartis-cyp3a4-reg",
+    # "polaris/adme-fang-PERM-1",
+    # "polaris/adme-fang-SOLU-1",
+    # "polaris/adme-fang-RPPB-1",
+    # "polaris/adme-fang-HPPB-1",
+    # "novartis/adme-novartis-cyp3a4-reg",
 ]
 
 
@@ -194,7 +194,7 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
             break
 
     # recreate model and train with full training set for best_step epochs
-    e_retrain = stopper.best_step + patience
+    e_retrain = stopper.best_step + int(np.ceil(patience / 2))
     logger.info(f"Retraining on full training set for {e_retrain + 1} epochs...")
     model = FFNN(
         input_dim=model.input_dim,

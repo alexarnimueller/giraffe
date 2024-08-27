@@ -46,7 +46,8 @@ def main(
 def embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs, pca, n_pca):
     dim_atom, dim_bond = get_input_dims()
     conf = read_config_ini(folder)
-    vae = conf["vae"] == "True"
+    wae = conf["wae"] == "True"
+    vae = False if wae else conf["vae"] == "True"
 
     # Load data
     print(f"\nReading SMILES from {input_file}")
