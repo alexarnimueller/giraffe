@@ -91,13 +91,13 @@ If the input file only contains SMILES strings (single column, with or without h
 ### Sampling
 To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `70` of the model `pub_vae_sig`), run the following:
 ```bash
-python sampling.py -r -e 70 -t 0.6 -l 96 -n 100 models/pub_vae_sig
+python sampling.py -r -e 70 -t 0.6 -l 96 -n 100 -c models/pub_vae_sig
 ```
 If you ommit the `-r` flag, instead of selecting random points in latent space, the model will select random `100` SMILES from the training data and sample SMILES based on those seeds.
 
 Conditional sampling around a single SMILES string of interest using epoch `70` of the pretrained model `pub_vae_sig`:
 ```bash
-python sampling.py -e 70 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" models/pub_vae_sig
+python sampling.py -e 70 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" -c models/pub_vae_sig
 ```
 The sampled SMILES strings are stored in `output/sampled.csv` together with the negative log likelihood score.
 
