@@ -156,6 +156,7 @@ def main(
         "weight_vae": weight_vae,
         "anneal_type": anneal_type,
         "anneal_start": anneal_start,
+        "anneal_stop": anneal_stop,
         "anneal_cycle": anneal_cycle,
         "anneal_grow": anneal_grow,
         "anneal_ratio": anneal_ratio,

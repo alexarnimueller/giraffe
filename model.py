@@ -401,7 +401,7 @@ def anneal_const_sigmoid(n_iter, start=0.0, stop=1.0, slope=1.5):
 def create_annealing_schedule(
     epochs, epoch_steps, anneal_start, anneal_stop, anneal_cycle, anneal_grow, anneal_ratio, anneal_type
 ):
-    anneal_stop = min(anneal_stop, epochs)
+    anneal_stop = min(int(anneal_stop), int(epochs))
     total_steps = (anneal_stop - anneal_start) * epoch_steps
     n_cycle = (anneal_stop - anneal_start) // anneal_cycle
 
