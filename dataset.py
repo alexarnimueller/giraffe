@@ -237,7 +237,10 @@ class AttFPTableDataset(Dataset):
 def load_from_fname(filename, smls_col, delimiter):
     # Load smiles dataset
     if isinstance(filename, str):
-        data = pd.read_csv(filename, delimiter=delimiter)
+        if filename.endswith(".gz"):
+            data = pd.read_csv(filename, delimiter=delimiter, compression="gzip")
+        else:
+            data = pd.read_csv(filename, delimiter=delimiter)
         data.dropna(how="all", axis=1, inplace=True)
         if smls_col not in data.columns and len(data.columns) == 1:
             data = pd.concat(

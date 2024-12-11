@@ -10,6 +10,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
 from openTSNE import TSNE
+from pacmap import PaCMAP
 from rdkit.Chem import MolFromSmiles
 from sklearn.decomposition import PCA
 from tqdm.auto import tqdm
@@ -29,8 +30,9 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_sig")
 @click.option("-j", "--n_jobs", default=6)
 @click.option("-t", "--tsne", is_flag=True, default=False)
+@click.option("-p", "--pacmap", is_flag=True, default=False)
 @click.option("-x", "--perplex", default=30)
-def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, perplex):
+def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, pacmap, perplex):
     smls, embs = embed_file(filename, delim, smls_col, None, checkpoint, epoch, 512, n_mols, n_jobs, False, None)
     # properties
     print("Calculating properties")
@@ -39,9 +41,10 @@ def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, per
     mols = [MolFromSmiles(s) for s in tqdm(smls, desc="Smiles2Mol")]
     props = pd.DataFrame([sclr.transform(m) for m in tqdm(mols, desc="Calculating properties")], columns=names)
 
-    # PCA
-    print("Running PCA on embeddings...")
-    emb_red = PCA(n_components=2, random_state=42).fit_transform(embs)
+    if not pacmap and not tsne:
+        # PCA
+        print("Running PCA on embeddings...")
+        emb_red = PCA(n_components=2, random_state=42).fit_transform(embs)
 
     if tsne:
         print("Running t-SNE on PCA-compressed embeddings...")
@@ -51,7 +54,11 @@ def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, per
             metric="cosine",
             n_jobs=n_jobs,
             random_state=42,
-        ).fit(emb_red)
+        ).fit(PCA(n_components=16, random_state=42).fit_transform(embs))
+
+    if pacmap:
+        print("Running PacMAP embeddings...")
+        emb_red = PaCMAP(n_components=2, n_neighbors=10, MN_ratio=0.5, FP_ratio=2.0).fit_transform(embs)
 
     # plot
     print("Plotting...")
@@ -75,6 +82,7 @@ def main(filename, delim, smls_col, n_mols, epoch, checkpoint, n_jobs, tsne, per
     cbar.set_ticklabels(["low", "high"])
 
     fname = f"{WDIR}/examples/figures/latentspace-tsne.png" if tsne else f"{WDIR}/examples/figures/latentspace-pca.png"
+    fname = f"{WDIR}/examples/figures/latentspace-pacmap.png" if pacmap else fname
     plt.savefig(fname, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
