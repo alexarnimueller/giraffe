@@ -26,58 +26,70 @@ from model import (
     vae_loss_func,
 )
 from sampling import temperature_sampling
-from utils import get_input_dims
+from utils import click_config_file, get_input_dims
 
 for level in RDLogger._levels:
     DisableLog(level)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEFAULT_CFG = "./configs/siglin_wae3.ini"
 
 
-@click.command()
-@click.argument("filename")
-@click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
-@click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
-@click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-e", "--epochs", default=100, help="Nr. of epochs to train.")
-@click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
-@click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
-@click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
-@click.option("-p", "--props", default=None, help="Comma-seperated list of descriptors to use. All, if omitted")
-@click.option("--epoch_steps", "--es", default=1000, help="If random, number of batches per epoch.")
-@click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
-@click.option("-l", "--lr", default=1e-3, help="Learning rate.")
-@click.option("--lr_fact", "--lf", default=0.75, help="Learning rate decay factor.")
-@click.option("--lr_step", "--ls", default=10, help="LR Step decay after nr. of epochs.")
-@click.option("-a", "--after", default=5, help="Epoch steps to save model.")
-@click.option("-t", "--temp", default=0.5, help="Temperature to use during SMILES sampling.")
-@click.option("--n_sample", "--ns", default=100, help="Nr. SMILES to sample after each trainin epoch.")
-@click.option("--kernels_gnn", "--nk", default=2, help="Nr. GNN kernels")
-@click.option("--layers_gnn", "--ng", default=2, help="Nr. GNN layers")
-@click.option("--layers_rnn", "--nr", default=2, help="Nr. RNN layers")
-@click.option("--layers_mlp", "--nm", default=2, help="Nr. MLP layers")
-@click.option("--dim_gnn", "--dg", default=512, help="Hidden dimension of GNN layers")
-@click.option("--dim_rnn", "--dr", default=512, help="Hidden dimension of RNN layers")
-@click.option("--dim_tok", "--dt", default=64, help="Dimension of RNN token embedding")
-@click.option("--dim_mlp", "--dm", default=512, help="Hidden dimension of MLP layers")
-@click.option("--weight_prop", "--wp", default=20.0, help="Factor for weighting property loss in VAE loss")
-@click.option("--weight_vae", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
+@click.command()  # cls=click_with_config_file("config"))
+@click.option(
+    "--config",
+    type=click.Path(dir_okay=False),
+    default=DEFAULT_CFG,
+    callback=click_config_file,
+    is_eager=True,
+    expose_value=False,
+    help="Read option defaults from the specified INI config file",
+    show_default=True,
+)
+@click.option("--config", type=click.Path(), help="Optional: path to config file to set parameter values.")
+@click.option("-f", "--filename", type=click.Path(), help="Name of the file containing the training data.")
+@click.option("-n", "--run_name", help="Name of the run for saving (filename if omitted).")
+@click.option("-d", "--delimiter", help="Column delimiter of input file.")
+@click.option("-c", "--smls_col", help="Name of column that contains SMILES.")
+@click.option("-e", "--epochs", type=int, help="Nr. of epochs to train.")
+@click.option("-o", "--dropout", type=float, help="Dropout fraction.")
+@click.option("-b", "--batch_size", type=int, help="Number of molecules per batch.")
+@click.option("-p", "--props", help="Comma-seperated list of descriptors to use. All, if omitted")
+@click.option("--random/--no-random", help="Randomly sample molecules in each training step.")
+@click.option("--epoch_steps", "--es", type=int, help="If random, number of batches per epoch.")
+@click.option("-v", "--frac_val", type=float, help="Fraction of the data to use for validation.")
+@click.option("-l", "--lr", type=float, help="Learning rate.")
+@click.option("--lr_fact", "--lf", type=float, help="Learning rate decay factor.")
+@click.option("--lr_step", "--ls", type=int, help="LR Step decay after nr. of epochs.")
+@click.option("-a", "--save_after", type=int, help="Epoch steps to save model.")
+@click.option("-t", "--temp", type=float, help="Temperature to use during SMILES sampling.")
+@click.option("--n_sample", "--ns", type=int, help="Nr. SMILES to sample after each trainin epoch.")
+@click.option("--kernels_gnn", "--nk", type=int, help="Nr. GNN kernels")
+@click.option("--layers_gnn", "--ng", type=int, help="Nr. GNN layers")
+@click.option("--layers_rnn", "--nr", type=int, help="Nr. RNN layers")
+@click.option("--layers_mlp", "--nm", type=int, help="Nr. MLP layers")
+@click.option("--dim_gnn", "--dg", type=int, help="Hidden dimension of GNN layers")
+@click.option("--dim_rnn", "--dr", type=int, help="Hidden dimension of RNN layers")
+@click.option("--dim_tok", "--dt", type=int, help="Dimension of RNN token embedding")
+@click.option("--dim_mlp", "--dm", type=int, help="Hidden dimension of MLP layers")
+@click.option("--weight_prop", "--wp", type=float, help="Factor for weighting property loss in VAE loss")
+@click.option("--weight_vae", "--wk", type=float, help="Factor for weighting KL divergence loss in VAE loss")
 @click.option(
     "--anneal_type",
     "--at",
-    default="sigmoid",
     help="Shape of VAE weight annealing: constant, linear, sigmoid, cyc_linear, cyc_sigmoid, cyc_sigmoid_lin",
 )
-@click.option("--anneal_start", "--as", default=10, help="Epoch at which to start VAE loss annealing.")
-@click.option("--anneal_stop", "--ao", default=None, help="Epoch at which to stop VAE loss annealing (stay const.)")
-@click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
-@click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
-@click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE loss weight")
-@click.option("--vae/--no-vae", default=True, help="Whether to train a variational AE or classical AE")
-@click.option("--wae/--no-wae", default=False, help="Whether to train a Wasserstein autoencoder using MMD")
-@click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
-@click.option("--n_proc", "--np", default=6, help="Number of CPU processes to use")
+@click.option("--anneal_start", "--as", type=int, help="Epoch at which to start VAE loss annealing.")
+@click.option("--anneal_stop", "--ao", type=int, help="Epoch at which to stop VAE loss annealing & stay const.")
+@click.option("--anneal_cycle", "--ac", type=int, help="Number of epochs for one VAE loss annealing cycle")
+@click.option("--anneal_grow", "--ag", type=int, help="Number of annealing cycles with increasing values")
+@click.option("--anneal_ratio", "--ar", type=float, help="Fraction of annealing vs. constant VAE loss weight")
+@click.option("--vae/--no-vae", help="Whether to train a variational AE or classical AE")
+@click.option("--wae/--no-wae", help="Whether to train a Wasserstein autoencoder using MMD")
+@click.option("--scaled-props/--no-scaled-props", help="Whether to scale all properties from 0 to 1")
+@click.option("--n_proc", "--np", type=int, help="Number of CPU processes to use")
 def main(
+    config,
     filename,
     run_name,
     delimiter,
@@ -88,11 +100,11 @@ def main(
     random,
     props,
     epoch_steps,
-    val,
+    frac_val,
     lr,
     lr_fact,
     lr_step,
-    after,
+    save_after,
     temp,
     n_sample,
     kernels_gnn,
@@ -113,7 +125,7 @@ def main(
     anneal_ratio,
     vae,
     wae,
-    scale,
+    scaled_props,
     n_proc,
 ):
     if run_name is None:  # take filename as run name if not specified
@@ -136,23 +148,23 @@ def main(
         "dropout": dropout,
         "batch_size": batch_size,
         "random": random,
-        "porps": props if props else "full",
+        "porps": props,
         "n_proc": n_proc,
-        "epoch_steps": epoch_steps if random else "full",
-        "frac_val": val,
+        "epoch_steps": epoch_steps,
+        "frac_val": frac_val,
         "lr": lr,
         "lr_fact": lr_fact,
         "lr_step": lr_step,
-        "save_after": after,
-        "n_gnn_layers": layers_gnn,
-        "n_rnn_layers": layers_rnn,
-        "n_mlp_layers": layers_mlp,
+        "save_after": save_after,
+        "layers_gnn": layers_gnn,
+        "layers_rnn": layers_rnn,
+        "layers_mlp": layers_mlp,
         "dim_gnn": dim_gnn,
-        "n_kernels": kernels_gnn,
-        "dim_embed": dim_tok,
+        "kernels_gnn": kernels_gnn,
+        "dim_tok": dim_tok,
         "dim_rnn": dim_rnn,
         "dim_mlp": dim_mlp,
-        "weight_props": weight_prop,
+        "weight_prop": weight_prop,
         "weight_vae": weight_vae,
         "anneal_type": anneal_type,
         "anneal_start": anneal_start,
@@ -160,11 +172,12 @@ def main(
         "anneal_cycle": anneal_cycle,
         "anneal_grow": anneal_grow,
         "anneal_ratio": anneal_ratio,
-        "scaled_props": scale,
+        "scaled_props": scaled_props,
         "vae": vae,
         "wae": wae,
     }
     config["alphabet"] = alphabet = len(t2i)
+    config = {k: (v if v is not None else 0) for k, v in config.items()}
 
     # Define paths
     path_model = f"models/{run_name}/"
@@ -174,7 +187,7 @@ def main(
     print("\nPaths (model, loss): ", path_model, path_loss)
 
     # load data to determine if there are properties
-    print("\nReading SMILES dataset...")
+    print(f"\nReading SMILES dataset {filename} ...")
     content = load_from_fname(filename, smls_col=smls_col, delimiter=delimiter)
     DatasetClass = AttFPDataset if content.columns.tolist() == [smls_col] else AttFPTableDataset
     dataset = DatasetClass(
@@ -183,16 +196,16 @@ def main(
         smls_col=smls_col,
         props=props,
         random=random,
-        scaled_props=scale,
-        steps=int(epoch_steps * batch_size * (1 + val)),
+        scaled_props=scaled_props,
+        steps=int(epoch_steps * batch_size * (1 + frac_val)),
     )
     config["n_props"] = n_props = dataset.n_props
-    train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
+    train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - frac_val, frac_val])
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
     valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
 
     # store config file for later sampling, retraining etc.
-    with open(f"{path_model}config.ini", "w") as configfile:
+    with open(f"{path_model}{run_name}.ini", "w") as configfile:
         ini["CONFIG"] = config
         ini.write(configfile)
 
@@ -239,6 +252,7 @@ def main(
         f"Using {len(train_set)}{' random' if random else ''} molecules for training "
         + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
     )
+    print("\nConfiguration:\n", config)
 
     # VAE loss weight annealing
     anneal_stop = epochs if anneal_stop is None else anneal_stop
@@ -316,7 +330,7 @@ def main(
         )
 
         # save loss and models
-        if epoch % after == 0:
+        if epoch % save_after == 0:
             torch.save(gnn.state_dict(), f"{path_model}atfp_{epoch}.pt")
             torch.save(rnn.state_dict(), f"{path_model}lstm_{epoch}.pt")
             torch.save(mlp.state_dict(), f"{path_model}ffnn_{epoch}.pt")

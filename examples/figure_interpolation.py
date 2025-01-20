@@ -20,8 +20,8 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.option("-e", "--end", default="c1ccccc1C2=NCC(=O)N(C)c3ccc(Cl)cc23")
 @click.option("-n", "--n_steps", default=100)
 @click.option("-t", "--temp", default=0.25)
-@click.option("-o", "--epoch", default=100)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/big_sig_wae")
+@click.option("-o", "--epoch", default=85)
+@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/siglin_wae2")
 def main(start, end, n_steps, temp, epoch, checkpoint):
     name = checkpoint.split("/")[-1]
     # sample from interpolation

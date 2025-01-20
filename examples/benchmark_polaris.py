@@ -26,14 +26,14 @@ logger.setLevel(logging.INFO)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BENCHMARKS = [
-    # "graphium/tox21-v1",
-    # "graphium/zinc12k-v1",
-    # "polaris/adme-fang-r-1",
-    # "polaris/adme-fang-PERM-1",
-    # "polaris/adme-fang-SOLU-1",
-    # "polaris/adme-fang-RPPB-1",
-    # "polaris/adme-fang-HPPB-1",
-    # "novartis/adme-novartis-cyp3a4-reg",
+    "graphium/tox21-v1",
+    "graphium/zinc12k-v1",
+    "polaris/adme-fang-r-1",
+    "polaris/adme-fang-PERM-1",
+    "polaris/adme-fang-SOLU-1",
+    "polaris/adme-fang-RPPB-1",
+    "polaris/adme-fang-HPPB-1",
+    "novartis/adme-novartis-cyp3a4-reg",
     "tdcommons/cyp3a4-veith",
     "tdcommons/cyp2d6-veith",
     "tdcommons/cyp2c9-veith",
@@ -167,6 +167,9 @@ def eval_one_epoch(model, valid_loader, classification=False):
 
 
 def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs):
+    if run_name is None:
+        run_name = giraffe_model_ckpt.split("/")[1]
+
     giraffe = GiraffeFeaturizer(giraffe_model_ckpt, n_jobs=n_jobs)
 
     logger.info(f"Downloading and featurizing {dataset}...")
@@ -268,10 +271,10 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
 @click.option(
     "-m",
     "--giraffe_model_ckpt",
-    default="models/big_sig/atfp_45.pt",
+    default="models/big_siglin_wae2/atfp_85.pt",
     help="Checkpoint of the trained Giraffe model.",
 )
-@click.option("-n", "--run_name", default="benchmark", help="Name of the run.")
+@click.option("-n", "--run_name", default=None, help="Name of the run. Default: model name")
 @click.option("-e", "--max_epochs", default=500, help="Maximum number of epochs to train.")
 @click.option("-p", "--patience", default=10, help="Early stopping patience (epochs).")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate for the optimizer.")

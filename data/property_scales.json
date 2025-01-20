@@ -239,6 +239,34 @@
         0.0,
         40.0
     ],
+    "NumHeterocycles": [
+        0.0,
+        10.0
+    ],
+    "NumBridgeheadAtoms": [
+        0.0,
+        12.0
+    ],
+    "NumAmideBonds": [
+        0.0,
+        16.0
+    ],
+    "NumAtomStereoCenters": [
+        0.0,
+        20.0
+    ],
+    "NumUnspecifiedAtomStereoCenters": [
+        0.0,
+        20.0
+    ],
+    "NumSpiroAtoms": [
+        0.0,
+        12.0
+    ],
+    "Phi": [
+        0.0,
+        12.0
+    ],
     "NumRadicalElectrons": [
         0.0,
         2.0

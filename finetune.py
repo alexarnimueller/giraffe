@@ -18,7 +18,7 @@ from dataset import AttFPDataset, AttFPTableDataset, load_from_fname, tokenizer
 from model import FFNN, LSTM, AttentiveFP, AttentiveFP2, create_annealing_schedule
 from sampling import temperature_sampling
 from train import train_one_epoch, validate_one_epoch
-from utils import get_input_dims, mse_with_nans, read_config_ini
+from utils import click_with_config_file, get_input_dims, mse_with_nans, read_config_ini
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -26,8 +26,11 @@ for level in RDLogger._levels:
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-@click.command()
+@click.command(cls=click_with_config_file("config_file"))
 @click.argument("filename")
+@click.option(
+    "-f", "--config_file", type=click.Path(), help="Configuration file. If provided other options are ignored."
+)
 @click.option("-c", "--checkpoint", default="models/pub_vae_sig", help="Checkpoint folder.")
 @click.option("-e", "--epoch_load", default=70, help="Epoch of models to load.")
 @click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
@@ -63,6 +66,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("--n_proc", "--np", default=6, help="Number of CPU processes to use")
 def main(
     filename,
+    config_file,
     checkpoint,
     epoch_load,
     run_name,
@@ -140,6 +144,7 @@ def main(
         "vae": vae,
         "wae": wae,
     }
+    config = {k: (v if v is not None else 0) for k, v in config.items()}
 
     content = load_from_fname(filename, smls_col=smls_col, delimiter=delimiter)
     DatasetClass = AttFPDataset if content.columns.tolist() == [smls_col] else AttFPTableDataset
@@ -214,6 +219,7 @@ def main(
         f"Using {len(train_set)}{' random' if random else ''} molecules for training "
         + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
     )
+    print("\nConfiguration:\n", config)
 
     # VAE loss weight annealing
     anneal_stop = epochs if anneal_stop is None else anneal_stop

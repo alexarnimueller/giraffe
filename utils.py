@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import configparser
 import os
+from configparser import ConfigParser
 from multiprocessing import Process, Queue, cpu_count
 
+import click
 import numpy as np
 import torch
 from rdkit import Chem
@@ -320,9 +321,12 @@ def get_input_dims():
     )
 
 
-def read_config_ini(folder):
-    ini = configparser.ConfigParser()
-    ini.read(os.path.join(folder, "config.ini"))
+def read_config_ini(folder_file):
+    ini = ConfigParser()
+    if os.path.isfile(folder_file):
+        ini.read(folder_file)
+    else:
+        ini.read(os.path.join(folder_file, "config.ini"))
     conf = {}
     for k, v in ini["CONFIG"].items():
         try:
@@ -344,3 +348,21 @@ def mse_with_nans(y_pred, y_true):
 def ce_with_nans(y_pred, y_true):
     mask = ~torch.isnan(y_true).to(y_pred.device)
     return torch.nn.functional.cross_entropy(y_pred[mask], y_true[mask]) / mask.sum() if mask.sum() > 0 else 1e-6
+
+
+def click_with_config_file(config_file_param_name):
+    class CustomCommand(click.Command):
+        def invoke(self, ctx):
+            config_file = ctx.params[config_file_param_name]
+            if config_file is not None:
+                config_data = read_config_ini(config_file)
+                for param, value in ctx.params.items():
+                    if value is None and param in config_data:
+                        ctx.params[param] = config_data[param]
+            return super(CustomCommand, self).invoke(ctx)
+
+    return CustomCommand
+
+
+def click_config_file(ctx, param, filename):
+    ctx.default_map = read_config_ini(filename)

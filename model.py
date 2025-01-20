@@ -403,10 +403,11 @@ def create_annealing_schedule(
 ):
     anneal_stop = min(int(anneal_stop), int(epochs))
     total_steps = (anneal_stop - anneal_start) * epoch_steps
-    n_cycle = (anneal_stop - anneal_start) // anneal_cycle
+    if anneal_cycle:
+        n_cycle = (anneal_stop - anneal_start) // anneal_cycle
 
     anneal = np.zeros(anneal_start * epoch_steps)
-    if (total_steps / epoch_steps) % anneal_cycle:
+    if anneal_cycle and (total_steps / epoch_steps) % anneal_cycle:
         n_cycle += 1
     if anneal_type == "cyc_linear":
         ann_sched = anneal_cycle_linear(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
