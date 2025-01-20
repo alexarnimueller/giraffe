@@ -171,6 +171,7 @@ class AttFPTableDataset(Dataset):
         # Load tabular dataset
         self.data = load_from_fname(filename, smls_col, delimiter)
         self.max_len = self.data[smls_col].apply(lambda x: len(x)).max()
+        self.min_len = self.data[smls_col].apply(lambda x: len(x)).min()
         self.props = props if props else [c for c in self.data.columns if c != smls_col]
         self.data[self.props] = self.data[self.props].astype(float)
         self.n_props = len(self.props)
