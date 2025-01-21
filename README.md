@@ -28,62 +28,76 @@ conda env create -f environment.yml
 ### Training
 Training a new model on a file with SMILES strings can be achieved as follows:
 ```bash
-python train.py data/100k.smi
+python train.py -f data/100k.smi
 ```
-The call above will train a VAE. To train a traditional autoencoder, use the `--no-vae` flag. It is also possible to train a Wasserstein autoencoder (WAE) using the maximum mean discrepancy in inverse multiquadratic kernel space to match the encoder distribution with a gaussian. Use the `--wae` flag to train a MMD WAE. 
+The call above will use the default configuration stored in `configs/default.ini` and train a VAE. To train a traditional autoencoder, use the `--no-vae` flag. It is also possible to train a Wasserstein autoencoder (WAE) using the maximum mean discrepancy in inverse multiquadratic kernel space to match the encoder distribution with a gaussian. Use the `--wae` flag to train a MMD WAE. 
 
 To get all the options, call `python train.py --help`:
 ```
-Usage: train.py [OPTIONS] FILENAME
+Usage: train.py [OPTIONS]
 
 Options:
-  -n, --run_name TEXT           Name of the run for saving (filename if
-                                omitted).
-  -d, --delimiter TEXT          Column delimiter of input file.
-  -c, --smls_col TEXT           Name of column that contains SMILES.
-  -e, --epochs INTEGER          Nr. of epochs to train.
-  -o, --dropout FLOAT           Dropout fraction.
-  -b, --batch_size INTEGER      Number of molecules per batch.
-  -r, --random                  Randomly sample molecules in each training
-                                step.
-  -p, --props TEXT              Comma-seperated list of descriptors to use.
-                                All, if omitted
-  --epoch_steps, --es INTEGER   If random, number of batches per epoch.
-  -v, --val FLOAT               Fraction of the data to use for validation.
-  -l, --lr FLOAT                Learning rate.
-  --lr_fact, --lf FLOAT         Learning rate decay factor.
-  --lr_step, --ls INTEGER       LR Step decay after nr. of epochs.
-  -a, --after INTEGER           Epoch steps to save model.
-  -t, --temp FLOAT              Temperature to use during SMILES sampling.
-  --n_sample, --ns INTEGER      Nr. SMILES to sample after each trainin epoch.
-  --kernels_gnn, --nk INTEGER   Nr. GNN kernels
-  --layers_gnn, --ng INTEGER    Nr. GNN layers
-  --layers_rnn, --nr INTEGER    Nr. RNN layers
-  --layers_mlp, --nm INTEGER    Nr. MLP layers
-  --dim_gnn, --dg INTEGER       Hidden dimension of GNN layers
-  --dim_rnn, --dr INTEGER       Hidden dimension of RNN layers
-  --dim_tok, --dt INTEGER       Dimension of RNN token embedding
-  --dim_mlp, --dm INTEGER       Hidden dimension of MLP layers
-  --weight_prop, --wp FLOAT     Factor for weighting property loss in VAE loss
-  --weight_vae, --wk FLOAT      Factor for weighting KL divergence loss in VAE
-                                loss
-  --anneal_type, --at TEXT      Shape of cyclical annealing: linear or sigmoid
-  --anneal_cycle, --ac INTEGER  Number of epochs for one VAE loss annealing
-                                cycle
-  --anneal_grow, --ag INTEGER   Number of annealing cycles with increasing
-                                values
-  --anneal_ratio, --ar FLOAT    Fraction of annealing vs. constant VAE loss
-                                weight
-  --vae / --no-vae              Whether to train a variational AE or classical
-                                AE
-  --wae / --no-wae              Whether to train a Wasserstein autoencoder
-                                using MMD
-  --scale / --no-scale          Whether to scale all properties from 0 to 1
-  --n_proc, --np INTEGER        Number of CPU processes to use
-  --help                        Show this message and exit.
+  --config FILE                   Read option defaults from the specified INI
+                                  config file  [default: ./configs/default.ini]
+  --config PATH                   Optional: path to config file to set
+                                  parameter values.
+  -f, --filename PATH             Name of the file containing the training
+                                  data.
+  -n, --run_name TEXT             Name of the run for saving (filename if
+                                  omitted).
+  -d, --delimiter TEXT            Column delimiter of input file.
+  -c, --smls_col TEXT             Name of column that contains SMILES.
+  -e, --epochs INTEGER            Nr. of epochs to train.
+  -o, --dropout FLOAT             Dropout fraction.
+  -b, --batch_size INTEGER        Number of molecules per batch.
+  -p, --props TEXT                Comma-seperated list of descriptors to use.
+                                  All, if omitted
+  --random / --no-random          Randomly sample molecules in each training
+                                  step.
+  --epoch_steps, --es INTEGER     If random, number of batches per epoch.
+  -v, --frac_val FLOAT            Fraction of the data to use for validation.
+  -l, --lr FLOAT                  Learning rate.
+  --lr_fact, --lf FLOAT           Learning rate decay factor.
+  --lr_step, --ls INTEGER         LR Step decay after nr. of epochs.
+  -a, --save_after INTEGER        Epoch steps to save model.
+  -t, --temp FLOAT                Temperature to use during SMILES sampling.
+  --n_sample, --ns INTEGER        Nr. SMILES to sample after each trainin
+                                  epoch.
+  --kernels_gnn, --nk INTEGER     Nr. GNN kernels
+  --layers_gnn, --ng INTEGER      Nr. GNN layers
+  --layers_rnn, --nr INTEGER      Nr. RNN layers
+  --layers_mlp, --nm INTEGER      Nr. MLP layers
+  --dim_gnn, --dg INTEGER         Hidden dimension of GNN layers
+  --dim_rnn, --dr INTEGER         Hidden dimension of RNN layers
+  --dim_tok, --dt INTEGER         Dimension of RNN token embedding
+  --dim_mlp, --dm INTEGER         Hidden dimension of MLP layers
+  --weight_prop, --wp FLOAT       Factor for weighting property loss in VAE
+                                  loss
+  --weight_vae, --wk FLOAT        Factor for weighting KL divergence loss in
+                                  VAE loss
+  --anneal_type, --at TEXT        Shape of VAE weight annealing: constant,
+                                  linear, sigmoid, cyc_linear, cyc_sigmoid,
+                                  cyc_sigmoid_lin
+  --anneal_start, --as INTEGER    Epoch at which to start VAE loss annealing.
+  --anneal_stop, --ao INTEGER     Epoch at which to stop VAE loss annealing &
+                                  stay const.
+  --anneal_cycle, --ac INTEGER    Number of epochs for one VAE loss annealing
+                                  cycle
+  --anneal_grow, --ag INTEGER     Number of annealing cycles with increasing
+                                  values
+  --anneal_ratio, --ar FLOAT      Fraction of annealing vs. constant VAE loss
+                                  weight
+  --vae / --no-vae                Whether to train a variational AE or
+                                  classical AE
+  --wae / --no-wae                Whether to train a Wasserstein autoencoder
+                                  using MMD
+  --scaled-props / --no-scaled-props
+                                  Whether to scale all properties from 0 to 1
+  --n_proc, --np INTEGER          Number of CPU processes to use
+  --help                          Show this message and exit.
 ```
 
-After training, a config file containing all the used options will be saved in the checkpoints folder. This file is used for later sampling and embedding tasks.
+After training, a config file containing all the used options will be saved in the checkpoints folder. This file is used for later sampling and embedding tasks and can be a template for other rounds of training.
 
 #### Calculated vs. Custom Properties
 If the input file only contains SMILES strings (single column, with or without header), Giraffe uses all calculable RDKit properties (scaled from 0 to 1). If the input file contains other numerical columns next to the SMILES, it will use those values as properties. The user has to ensure the properties are scaled to a reasonable range.

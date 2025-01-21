@@ -32,7 +32,7 @@ for level in RDLogger._levels:
     DisableLog(level)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DEFAULT_CFG = "./configs/siglin_wae3.ini"
+DEFAULT_CFG = "./configs/default.ini"
 
 
 @click.command()  # cls=click_with_config_file("config"))
