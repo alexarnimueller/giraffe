@@ -7,7 +7,6 @@ from time import time
 
 import numpy as np
 import pandas as pd
-from joblib import dump, load
 from rdkit.Chem import (
     AddHs,
     AllChem,
@@ -27,7 +26,6 @@ from rdkit.DataStructs import (
 )
 from rdkit.SimDivFilters import MaxMinPicker
 from sklearn.metrics.pairwise import cosine_distances, euclidean_distances
-from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 

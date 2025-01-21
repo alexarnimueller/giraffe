@@ -122,8 +122,14 @@ Options:
 ### Embedding
 To embed SMILES strings using the pretrained GNN, proceed as follows:
 ```bash
-python embedding.py -f models/pub_vae_sig -e 70 data/1k.txt output/test/embeddings.csv
+python embedding.py data/1k.txt output/test/embeddings.txt
 ```
+
+One can also directly perform a dimensionality reduction on the embeddings using PCA, t-SNE or PacMap with the respective flag:
+```bash
+python embedding.py data/1k.txt output/test/embeddings-tsne.txt --tsne
+```
+
 To get all available options, call `python embedding.py --help`:
 ```
 Usage: embedding.py [OPTIONS] INPUT_FILE OUTPUT_FILE
@@ -137,6 +143,13 @@ Options:
   -b, --batch_size INTEGER  Batch size to use for embedding.
   -n, --n_mols INTEGER      Number of molecules to randomly sub-sample. Default: 0 = all
   -j, --n_jobs INTEGER      Number of cores to use for data loader.
+  -x, --prec INTEGER        Float precision
+  -p, --pca                 Whether embeddings should be further reduced by PCA
+  -t, --tsne                Whether embeddings should be further reduced by a t-SNE
+  -a, --pacmap              Whether embeddings should be further reduced by PacMap
+  -z, --n_comp INTEGER      If PCA/t-SNE/PacMap is used, number of components to reduce to
+  -x, --perplex INTEGER     Perplexity to be used for t-SNE dim. reduction.
+  -s, --seed TEXT           Random seed for PCA / t-SNE / PacMap
   --help                    Show this message and exit.
 ```
 

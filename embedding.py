@@ -1,13 +1,18 @@
 #! /usr/bin/env python
 # -*- coding: utf-8
 
+"""Script to embed molecules using a pretrained GIRAFFE model."""
+
 import os
+from time import time
 
 import click
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.decomposition import IncrementalPCA
+from openTSNE import TSNE
+from pacmap import PaCMAP
+from sklearn.decomposition import PCA
 from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
@@ -31,19 +36,70 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.option("-j", "--n_jobs", default=4, help="Number of cores to use for data loader.")
 @click.option("-x", "--prec", default=4, help="Float precision")
 @click.option("-p", "--pca", is_flag=True, help="Whether embeddings should be further reduced by PCA")
-@click.option("-z", "--n_pca", default=16, help="If PCA is used, number of components to reduce to")
+@click.option("-t", "--tsne", is_flag=True, help="Whether embeddings should be further reduced by a t-SNE")
+@click.option("-a", "--pacmap", is_flag=True, help="Whether embeddings should be further reduced by PacMap")
+@click.option("-z", "--n_comp", default=2, help="If PCA/t-SNE/PacMap is used, number of components to reduce to")
+@click.option("-x", "--perplex", default=30, help="Perplexity to be used for t-SNE dim. reduction.")
+@click.option("-s", "--seed", default=None, help="Random seed for PCA / t-SNE / PacMap")
 def main(
-    input_file, output_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, prec, pca, n_pca, n_jobs
+    input_file,
+    output_file,
+    delimiter,
+    smls_col,
+    id_col,
+    folder,
+    epoch,
+    batch_size,
+    n_mols,
+    prec,
+    pca,
+    tsne,
+    pacmap,
+    n_comp,
+    perplex,
+    n_jobs,
+    seed,
 ):
+    seed = seed if seed else int(time())
     ids, embds = embed_file(
-        input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs, pca, n_pca
+        input_file,
+        delimiter,
+        smls_col,
+        id_col,
+        folder,
+        epoch,
+        batch_size,
+        n_mols,
+        n_jobs,
+        pca,
+        tsne,
+        pacmap,
+        n_comp,
+        perplex,
+        seed,
     )
     out = np.concatenate((np.asarray(ids).reshape(-1, 1), np.round(embds, int(prec))), axis=1)
     np.savetxt(output_file, out, delimiter=",", fmt="%s")
     print(f"Embeddings saved to {output_file}\n")
 
 
-def embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_size, n_mols, n_jobs, pca, n_pca):
+def embed_file(
+    input_file,
+    delimiter,
+    smls_col,
+    id_col,
+    folder,
+    epoch,
+    batch_size,
+    n_mols,
+    n_jobs,
+    pca,
+    tsne,
+    pacmap,
+    n_comp,
+    perplex,
+    seed,
+):
     dim_atom, dim_bond = get_input_dims()
     conf = read_config_ini(folder)
     wae = conf["wae"] == "True"
@@ -80,9 +136,24 @@ def embed_file(input_file, delimiter, smls_col, id_col, folder, epoch, batch_siz
     # Embed molecules
     embs = smiles_embedding(gnn=gnn, smiles=smiles, batch_size=batch_size, n_jobs=n_jobs, vae=vae)
 
-    if pca:  # Reduce embeddings with PCA
-        ipca = IncrementalPCA(n_components=n_pca)
-        embs = ipca.fit_transform(embs)
+    if pca and not pacmap and not tsne:
+        # PCA
+        print("Running PCA on embeddings...")
+        embs = PCA(n_components=n_comp, random_state=seed).fit_transform(embs)
+
+    if tsne:
+        print(f"Running t-SNE on {n_comp * 12}-PCA-compressed embeddings...")
+        embs = TSNE(
+            perplexity=perplex,
+            initialization="pca",
+            metric="cosine",
+            n_jobs=n_jobs,
+            random_state=seed,
+        ).fit(PCA(n_components=n_comp * 12, random_state=seed).fit_transform(embs))
+
+    if pacmap:
+        print("Running PacMAP embeddings...")
+        embs = PaCMAP(n_components=n_comp, n_neighbors=10, MN_ratio=0.5, FP_ratio=2.0).fit_transform(embs)
 
     # Return embeddings for IDs
     return ids, embs
