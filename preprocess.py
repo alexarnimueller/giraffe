@@ -76,9 +76,11 @@ def preprocess_smiles_file(filename, smls_col, delimiter, max_len, batch_size):
 
     _, t2i = tokenizer()
     if filename.endswith(".gz"):
-        data = pd.read_csv(filename, delimiter=delimiter, compression="gzip").rename(columns={smls_col: "SMILES"})
+        data = pd.read_csv(filename, delimiter=delimiter, compression="gzip", engine="python").rename(
+            columns={smls_col: "SMILES"}
+        )
     else:
-        data = pd.read_csv(filename, delimiter=delimiter).rename(columns={smls_col: "SMILES"})
+        data = pd.read_csv(filename, delimiter=delimiter, engine="python").rename(columns={smls_col: "SMILES"})
     print(f"{len(data)} SMILES strings read")
 
     print("Keeping longest fragment...")

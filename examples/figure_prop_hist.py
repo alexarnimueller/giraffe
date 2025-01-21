@@ -22,7 +22,7 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.option("-s", "--smls_col", default="SMILES")
 @click.option("-t", "--train_data", default=None)
 def main(filename, delim, smls_col, train_data):
-    data = pd.read_csv(filename, delimiter=delim)
+    data = pd.read_csv(filename, delimiter=delim, engine="python")
     sclr = PropertyScaler(
         ["MolWt", "MolLogP", "qed", "NumHDonors", "NumAromaticRings", "FractionCSP3"], do_scale=False
     )

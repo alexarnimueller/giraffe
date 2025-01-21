@@ -29,7 +29,8 @@ class OneMol(Dataset):
         self.smiles = smiles
         self.mol = MolFromSmiles(smiles)
         if self.mol is None:
-            raise ValueError(f"Invalid SMILES: {smiles}")
+            print(f"WARNING: Invalid SMILES: {smiles}; Using Penguinone as replacement")
+            self.mol = MolFromSmiles("CC1=CC(=O)C=C(C1(C)C)C")
 
     def __getitem__(self, idx):
         smils = self.smiles
@@ -239,9 +240,9 @@ def load_from_fname(filename, smls_col, delimiter):
     # Load smiles dataset
     if isinstance(filename, str):
         if filename.endswith(".gz"):
-            data = pd.read_csv(filename, delimiter=delimiter, compression="gzip")
+            data = pd.read_csv(filename, delimiter=delimiter, compression="gzip", engine="python")
         else:
-            data = pd.read_csv(filename, delimiter=delimiter)
+            data = pd.read_csv(filename, delimiter=delimiter, engine="python")
         data.dropna(how="all", axis=1, inplace=True)
         if smls_col not in data.columns and len(data.columns) == 1:
             data = pd.concat(

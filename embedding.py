@@ -107,7 +107,7 @@ def embed_file(
 
     # Load data
     print(f"\nReading SMILES from {input_file}")
-    data = pd.read_csv(input_file, delimiter=delimiter)
+    data = pd.read_csv(input_file, delimiter=delimiter, engine="python")
     if n_mols:
         data = data.sample(n=int(n_mols), replace=False)
     smiles = data[smls_col].tolist()
