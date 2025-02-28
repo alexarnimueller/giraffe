@@ -326,7 +326,8 @@ def read_config_ini(folder_file):
     if os.path.isfile(folder_file):
         ini.read(folder_file)
     else:
-        ini.read(os.path.join(folder_file, "config.ini"))
+        f_ini = os.path.join(folder_file, f"{os.path.basename(os.path.normpath(folder_file))}.ini")
+        ini.read(f_ini)
     conf = {}
     for k, v in ini["CONFIG"].items():
         try:

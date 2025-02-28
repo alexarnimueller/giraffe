@@ -1007,8 +1007,8 @@ class GiraffeFeaturizer:
             hidden_channels=conf["dim_gnn"],
             out_channels=conf["dim_rnn"],
             edge_dim=self.dim_bond,
-            num_layers=conf["n_gnn_layers"],
-            num_timesteps=conf["n_kernels"],
+            num_layers=conf["layers_gnn"],
+            num_timesteps=conf["kernels_gnn"],
             dropout=conf["dropout"],
         )
 

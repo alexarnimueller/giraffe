@@ -312,38 +312,37 @@ def reparameterize(mu: Tensor, logvar: Tensor) -> Tensor:
     return eps * std + mu
 
 
-def vae_loss_func(loss_smls, loss_prop, mu, log_var, w_vae, w_prop, wae) -> List[Tensor]:
+def vae_loss_func(loss_smls, loss_prop, mu, log_var, w_vae, w_prop, wae, lambd=1.0, sigma=1.0) -> List[Tensor]:
     """Computes the VAE KLD or WAE MMD loss. Clamp and replace possible NaNs."""
     if wae:
-        loss_vae = torch.nan_to_num(compute_mmd(mu), nan=1e4)
+        loss_vae = torch.nan_to_num(compute_mmd(mu, lambd, sigma), nan=1e4)
     else:
         loss_vae = torch.nan_to_num(
             torch.mean(-0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0).clamp(max=1e4), nan=1e4
         )
-    return loss_smls + loss_vae * w_vae + loss_prop * w_prop, loss_vae
+    return torch.add(loss_smls, torch.multiply(loss_vae, w_vae) + torch.multiply(loss_prop, w_prop)), loss_vae
 
 
-def compute_kernel(x1, x2, eps=1e-7):
+def compute_kernel(x1, x2, eps=1e-7, sigma=1.0):
     """Compute the inverse multiquadratic kernel between inputs."""
     x1, x2 = x1.unsqueeze(-1), x2.unsqueeze(-1)
-    dim = x2.size(-1)
-    C = 2 * dim
+    C = 2 * x2.size(-1) * sigma**2
     kernel = C / (eps + C + (x1 - x2).pow(2).sum(dim=-1))
 
     # Exclude diagonal elements
     return kernel.sum() - kernel.diag().sum()
 
 
-def compute_mmd(z):
+def compute_mmd(z, lamb=1.0, sigma=1.0):
     """Compute the maximum mean discrepancy (MMD) between the input and a Gaussian prior.
-    WAE-MMD loss adapted from https://openreview.net/pdf?id=HkL7n1-0b
+    WAE-MMD loss adapted from https://openreview.net/pdf?id=HkL7n1-0b (Algorithm 2)
     """
-    prior_z = torch.randn_like(z)  # use gaussian as prior
-    kern_pz = compute_kernel(prior_z, prior_z)
-    kern_z = compute_kernel(z, z)
-    kern_pz_z = compute_kernel(prior_z, z)
-    lamb = 1 / (z.size(0) * (z.size(0) - 1))
-    return lamb * kern_pz.mean() + lamb * kern_z.mean() - 2 / (z.size(0) ** 2) * kern_pz_z.mean()
+    prior_z = torch.randn_like(z) * sigma  # use normal gaussian as prior (with custom sigma if needed)
+    kern_pz = compute_kernel(prior_z, prior_z, sigma=sigma)
+    kern_z = compute_kernel(z, z, sigma=sigma)
+    kern_pz_z = compute_kernel(prior_z, z, sigma=sigma)
+    pre = lamb / (z.size(0) * (z.size(0) - 1))
+    return pre * kern_pz.mean() + pre * kern_z.mean() - (2 * lamb) / (z.size(0) ** 2) * kern_pz_z.mean()
 
 
 def anneal_cycle_linear(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):

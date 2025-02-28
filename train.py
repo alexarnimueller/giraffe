@@ -86,6 +86,8 @@ DEFAULT_CFG = "./configs/default.ini"
 @click.option("--anneal_ratio", "--ar", type=float, help="Fraction of annealing vs. constant VAE loss weight")
 @click.option("--vae/--no-vae", help="Whether to train a variational AE or classical AE")
 @click.option("--wae/--no-wae", help="Whether to train a Wasserstein autoencoder using MMD")
+@click.option("--lambd", type=float, default=1.0, help="Lambda factor for the MMD equation in the WAE loss")
+@click.option("--sigma", type=float, default=1.0, help="Sigma of the prior")
 @click.option("--scaled-props/--no-scaled-props", help="Whether to scale all properties from 0 to 1")
 @click.option("--n_proc", "--np", type=int, help="Number of CPU processes to use")
 def main(
@@ -125,6 +127,8 @@ def main(
     anneal_ratio,
     vae,
     wae,
+    lambd,
+    sigma,
     scaled_props,
     n_proc,
 ):
@@ -175,6 +179,8 @@ def main(
         "scaled_props": scaled_props,
         "vae": vae,
         "wae": wae,
+        "lambd": lambd,
+        "sigma": sigma,
     }
     config["alphabet"] = alphabet = len(t2i)
     config = {k: (v if v is not None else 0) for k, v in config.items()}
@@ -286,6 +292,8 @@ def main(
             anneal,
             vae,
             wae,
+            lambd,
+            sigma,
         )
         l_vs, l_vp, l_vk = validate_one_epoch(
             gnn,
@@ -301,6 +309,8 @@ def main(
             weight_vae * fv,
             vae,
             wae,
+            lambd,
+            sigma,
         )
         dur = time.time() - time_start
         schedule.step()
@@ -337,7 +347,23 @@ def main(
 
 
 def train_one_epoch(
-    gnn, rnn, mlp, optimizer, criterion1, criterion2, train_loader, writer, epoch, t2i, wp, wk, asteps, vae, wae
+    gnn,
+    rnn,
+    mlp,
+    optimizer,
+    criterion1,
+    criterion2,
+    train_loader,
+    writer,
+    epoch,
+    t2i,
+    wp,
+    wk,
+    asteps,
+    vae,
+    wae,
+    lambd,
+    sigma,
 ):
     gnn.train(True)
     rnn.train(True)
@@ -384,7 +410,7 @@ def train_one_epoch(
             if wae:
                 mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
             f_vae = asteps[(epoch - 1) * steps + step]  # annealing)
-            loss, loss_vae = vae_loss_func(loss_mol / j, loss_props, mu, var, wk * f_vae, wp, wae)
+            loss, loss_vae = vae_loss_func(loss_mol / j, loss_props, mu, var, wk * f_vae, wp, wae, lambd, sigma)
             total_vae += loss_vae.cpu().detach().numpy()
         else:
             # combine losses, apply desired weight to property loss
@@ -399,12 +425,13 @@ def train_one_epoch(
 
         # write tensorboard summary
         step += 1
-        writer.add_scalar("loss_train_total", total_loss / step, (epoch - 1) * steps + step)
-        writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
-        writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
-        if vae or wae:
-            writer.add_scalar("loss_train_vae", total_vae / step, (epoch - 1) * steps + step)
-            writer.add_scalar("vae_weight", wk * f_vae, (epoch - 1) * steps + step)
+        if step % 10 == 0:
+            writer.add_scalar("loss_train_total", total_loss / step, (epoch - 1) * steps + step)
+            writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
+            writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
+            if vae or wae:
+                writer.add_scalar("loss_train_vae", total_vae / step, (epoch - 1) * steps + step)
+                writer.add_scalar("vae_weight", wk * f_vae, (epoch - 1) * steps + step)
         if step % 500 == 0:
             print(f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}")
 
@@ -412,7 +439,9 @@ def train_one_epoch(
 
 
 @torch.no_grad
-def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i, wp, wk, vae, wae):
+def validate_one_epoch(
+    gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i, wp, wk, vae, wae, lambd, sigma
+):
     gnn.train(False)
     rnn.train(False)
     mlp.train(False)
@@ -453,7 +482,7 @@ def validate_one_epoch(gnn, rnn, mlp, criterion1, criterion2, valid_loader, writ
             if vae or wae:  # vae
                 if wae:
                     mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
-                loss, loss_vae = vae_loss_func(mol_loss / j, loss_props, mu, var, wk, wp, wae)
+                loss, loss_vae = vae_loss_func(mol_loss / j, loss_props, mu, var, wk, wp, wae, lambd, sigma)
                 total_vae += loss_vae.cpu().detach().numpy()
             else:  # just weighted
                 loss = mol_loss + torch.multiply(loss_props, wp)
