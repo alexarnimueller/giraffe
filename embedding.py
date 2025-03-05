@@ -124,8 +124,8 @@ def embed_file(
         hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
         edge_dim=dim_bond,
-        num_layers=conf["n_gnn_layers"],
-        num_timesteps=conf["n_kernels"],
+        num_layers=conf["layers_gnn"],
+        num_timesteps=conf["kernels_gnn"],
         dropout=conf["dropout"],
     )
     path = os.path.join(folder, f"atfp_{epoch}.pt")

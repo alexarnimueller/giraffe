@@ -53,7 +53,7 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
         input_dim=conf["alphabet"],
         embedding_dim=conf["dim_embed"],
         hidden_dim=conf["dim_rnn"],
-        layers=conf["n_rnn_layers"],
+        layers=conf["layers_rnn"],
         dropout=conf["dropout"],
     )
 
@@ -63,8 +63,8 @@ def main(checkpoint, epoch, smiles, num, temp, maxlen, out, interpolate, random,
         hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
         edge_dim=dim_bond,
-        num_layers=conf["n_gnn_layers"],
-        num_timesteps=conf["n_kernels"],
+        num_layers=conf["layers_gnn"],
+        num_timesteps=conf["kernels_gnn"],
         dropout=conf["dropout"],
     )
 

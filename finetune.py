@@ -129,11 +129,11 @@ def main(
         "lr_fact": lr_fact,
         "lr_step": lr_step,
         "save_after": after,
-        "n_gnn_layers": conf["n_gnn_layers"],
-        "n_rnn_layers": conf["n_rnn_layers"],
-        "n_mlp_layers": conf["n_mlp_layers"],
+        "layers_gnn": conf["layers_gnn"],
+        "layers_rnn": conf["layers_rnn"],
+        "layers_mlp": conf["layers_mlp"],
         "dim_gnn": conf["dim_gnn"],
-        "n_kernels": conf["n_kernels"],
+        "kernels_gnn": conf["kernels_gnn"],
         "dim_embed": conf["dim_embed"],
         "dim_rnn": conf["dim_rnn"],
         "dim_mlp": conf["dim_mlp"],
@@ -169,7 +169,7 @@ def main(
     print("\nPaths (model, loss): ", path_model, path_loss)
 
     # store config file for later sampling, retraining etc.
-    with open(f"{path_model}config.ini", "w") as configfile:
+    with open(f"{path_model}{run_name}.ini", "w") as configfile:
         ini["CONFIG"] = config
         ini.write(configfile)
 
@@ -180,20 +180,18 @@ def main(
         hidden_channels=conf["dim_gnn"],
         out_channels=conf["dim_rnn"],
         edge_dim=dim_bond,
-        num_layers=conf["n_gnn_layers"],
-        num_timesteps=conf["n_kernels"],
+        num_layers=conf["layers_gnn"],
+        num_timesteps=conf["kernels_gnn"],
         dropout=conf["dropout"],
     )
     rnn = LSTM(
         input_dim=conf["alphabet"],
         embedding_dim=conf["dim_embed"],
         hidden_dim=conf["dim_gnn"],
-        layers=conf["n_rnn_layers"],
+        layers=conf["layers_rnn"],
         dropout=conf["dropout"],
     )
-    mlp = FFNN(
-        input_dim=conf["dim_rnn"], hidden_dim=conf["dim_mlp"], n_layers=conf["n_mlp_layers"], output_dim=n_props
-    )
+    mlp = FFNN(input_dim=conf["dim_rnn"], hidden_dim=conf["dim_mlp"], n_layers=conf["layers_mlp"], output_dim=n_props)
 
     gnn.load_state_dict(torch.load(os.path.join(checkpoint, f"atfp_{epoch_load}.pt"), map_location=DEVICE))
     rnn.load_state_dict(torch.load(os.path.join(checkpoint, f"lstm_{epoch_load}.pt"), map_location=DEVICE))
