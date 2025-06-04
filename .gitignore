@@ -1,13 +1,10 @@
 sHPC/
 benchmarks/
-models/
+#models/
 logs/
 output/
 data/*prop*
-Roche/
 examples/figures/*
-configs/*irci*
-configs/*oche*
 
 backup.txt
 Thumbs.db
