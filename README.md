@@ -5,9 +5,9 @@
 <a href="https://github.com/psf/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
 
 <p float="left">
-  <img src="examples/figures/logo2.png" width="200"/>
-  <img src="examples/figures/logo.png" width="200"/>
-  <img src="examples/figures/logo3.png" width="200"/>
+  <img src="giraffe/examples/figures/logo2.png" width="200"/>
+  <img src="giraffe/examples/figures/logo.png" width="200"/>
+  <img src="giraffe/examples/figures/logo3.png" width="200"/>
 </p>
 
 This repository contains training, embedding and sampling code for the "Graph Infused Representation Assembled From a multi-Faceted variational auto-Encoder" (Giraffe) model used to create meaningful molecular representations for small molecules.
