@@ -14,7 +14,7 @@ This repository contains training, embedding and sampling code for the "Graph In
 
 An overview of the architecture and training logic of Giraffe looks as follows:
 
-<img src="examples/figures/net.png" width="600"/>
+<img src="giraffe/examples/figures/net.png" width="600"/>
 
 > **_NOTE:_**  If the `--no-vae` or `--wae` flags are used during training, the encoder only outputs a single vector.
 
@@ -208,7 +208,7 @@ Options:
 ## VAE Loss Annealing
 In the VAE setup, we are emplyoing a growing cyclical annealing schedule. Here's an example of how the schedule looks for the two best performing cyclical annealing strategies for β values during training. Top (red): Linear increase over `4` cycles with cycle sizes of `10’000` steps with `7’500` increasing and `2’500` constant steps. Bottom (blue): Sigmoidal increase over `20` cycles with cycle sizes of `5’000` steps with `3’750` increasing and `1’250` constant steps. Both strategies were allowed to reach a maximum β value of `0.2`, and performed best in the tested benchmarks at the step indicated by a dashed line.
 
-<img src="examples/figures/annealing_cyclical.png" alt="annealing" width="400"/>
+<img src="giraffe/examples/figures/annealing_cyclical.png" alt="annealing" width="400"/>
 
 Adapted from https://github.com/haofuml/cyclical_annealing
 
@@ -220,7 +220,7 @@ Please follow the installation instructions described in their READMEs.
 ### Polaris Benchmark
 GIRAFFE also contains a script for benchmark datasets hosted on the [Polaris Hub](https://polarishub.io/). 
 
-First, login to the polaris hub by running the command `polaris login`. Then adapt the benchmark datasets in `examples/benchmark_polaris.py` and finally run the script using your desired model checkpoint:
+First, login to the polaris hub by running the command `polaris login`. Then adapt the benchmark datasets in `giraffe/examples/benchmark_polaris.py` and finally run the script using your desired model checkpoint:
 
 ```bash
 python examples/benchmark_polaris.py -m models/pub_vae_sig/atfp_70.pt <polaris username>
@@ -246,6 +246,6 @@ If you are using GIRAFFE in your research, please cite the following publication
           url{https://openreview.net/forum?id=7WYcOGds6R}
 }
 ```
-A PDF of the publication is provided [here](https://github.com/alexarnimueller/giraffe/blob/main/examples/figures/giraffe_ml4lms_2024.pdf).
+A PDF of the publication is provided [here](https://github.com/alexarnimueller/giraffe/blob/main/giraffe/examples/figures/giraffe_ml4lms_2024.pdf).
 
 To reproduce what is presented in the above publication, use the commit with tag `v1.0.0`.
