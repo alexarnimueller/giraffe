@@ -1,8 +1,8 @@
 giraffe/*HPC*/
-giraffe/benchmarks/
-giraffe/models/
-giraffe/logs/
-giraffe/output/
+giraffe/benchmarks/*
+giraffe/models/*
+giraffe/logs/*
+giraffe/output/*
 giraffe/data/*prop*
 giraffe/examples/figures/*
 
