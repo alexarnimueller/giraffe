@@ -22,7 +22,7 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.option("-t", "--temp", default=0.5)
 @click.option("-o", "--epoch", default=70)
 @click.option(
-    "-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/wae_pub"
+    "-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_wae"
 )
 @click.option("--col", type=str, default="blue")
 def main(smls, n_mols, temp, epoch, checkpoint, col):

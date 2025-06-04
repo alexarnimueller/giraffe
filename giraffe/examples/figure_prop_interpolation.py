@@ -26,7 +26,7 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.option("-t", "--temp", default=0.25)
 @click.option("-o", "--epoch", default=70)
 @click.option(
-    "-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/wae_pub"
+    "-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_wae"
 )
 def main(start, end, n_steps, temp, epoch, checkpoint):
     name = checkpoint.split("/")[-1]

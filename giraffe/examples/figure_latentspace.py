@@ -32,7 +32,7 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
     "-c",
     "--checkpoint",
     type=click.Path(exists=True),
-    default=f"{WDIR}/models/wae_pub",
+    default=f"{WDIR}/models/pub_wae",
 )
 @click.option("-j", "--n_jobs", default=6)
 @click.option("-t", "--tsne", is_flag=True, default=False)

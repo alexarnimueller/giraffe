@@ -29,7 +29,7 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
     "-c",
     "--checkpoint",
     type=click.Path(exists=True),
-    default=f"{WDIR}/models/wae_pub",
+    default=f"{WDIR}/models/pub_wae",
 )
 def main(start, end, n_steps, temp, epoch, checkpoint):
     name = checkpoint.split("/")[-1]

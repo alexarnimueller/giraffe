@@ -176,7 +176,7 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
 @click.option(
     "-m",
     "--giraffe_model_ckpt",
-    default="models/wae_pub_final/atfp_70.pt",
+    default="models/pub_wae_final/atfp_70.pt",
     help="Checkpoint of the trained Giraffe model.",
 )
 @click.option("-n", "--name", default=None, help="Name of the benchmark run.")

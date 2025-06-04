@@ -24,7 +24,7 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
     "-c",
     "--checkpoint",
     type=click.Path(exists=True),
-    default=f"{WDIR}/models/wae_pub",
+    default=f"{WDIR}/models/pub_wae",
 )
 @click.option("--col", type=str, default="black")
 def main(n_mols, temp, epoch, checkpoint, col):
