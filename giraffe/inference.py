@@ -13,8 +13,8 @@ from giraffe.model import load_models
 from giraffe.sampling import embedding2smiles
 from giraffe.utils import is_valid_mol
 
-_default_model_name = "wae"
-_default_epoch = 25
+_default_model_name = "pub_wae"
+_default_epoch = 70
 _default_model_dir = os.path.join(
     os.path.dirname(__file__), f"models/{_default_model_name}"
 )
