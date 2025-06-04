@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
-""""
+""" "
 Adapted from: https://github.com/BenevolentAI/MolBERT/blob/main/scripts/run_qsar_test_molbert.py
           and https://github.com/jrwnter/cddd/blob/master/cddd/evaluation.py
 
@@ -14,7 +14,7 @@ Module to to test the performance of the translation model to extract
     Lipophilicity: Z. Wu, B. Ramsundar, E. N. Feinberg, J. Gomes, C. Geniesse,
     A. S. Pappu, K. Leswing and V. Pande, Chemical Science, 2018,
     9, 513–530.
- """
+"""
 
 import json
 import os
@@ -28,10 +28,9 @@ import pandas as pd
 
 # from cddd.inference import InferenceModel
 from chembench import load_data
+from featurizer import GiraffeFeaturizer
 from sklearn import metrics
 from sklearn.svm import SVC, SVR
-
-from featurizer import GiraffeFeaturizer
 
 
 def get_data(dataset):
@@ -94,16 +93,26 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
 
         for feat_name, feat_fn in fn_combos:
             train_features = np.nan_to_num(
-                np.vstack([feat_fn(batch) for batch in batchify(train_df["SMILES"], 256)]), nan=0.0
+                np.vstack(
+                    [feat_fn(batch) for batch in batchify(train_df["SMILES"], 256)]
+                ),
+                nan=0.0,
             )
             train_labels = train_df[df.columns[-1]]
 
             test_features = np.nan_to_num(
-                np.vstack([feat_fn(batch) for batch in batchify(test_df["SMILES"], 256)]), nan=0.0
+                np.vstack(
+                    [feat_fn(batch) for batch in batchify(test_df["SMILES"], 256)]
+                ),
+                nan=0.0,
             )
             test_labels = test_df[df.columns[-1]]
 
-            mode = summary_df[summary_df["task_name"] == dataset].iloc[0]["task_type"].strip()
+            mode = (
+                summary_df[summary_df["task_name"] == dataset]
+                .iloc[0]["task_type"]
+                .strip()
+            )
 
             np.random.seed(i)
             if mode == "regression":
@@ -111,7 +120,9 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
             elif mode == "classification":
                 model = SVC(C=5.0, probability=True)
             else:
-                raise ValueError(f"Mode has to be either classification or regression but was {mode}.")
+                raise ValueError(
+                    f"Mode has to be either classification or regression but was {mode}."
+                )
 
             model.fit(train_features, train_labels)
 
@@ -121,14 +132,24 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
                 # predict probabilities (needed for some metrics) and get probs of positive class ([:, 1])
                 prob_predictions = model.predict_proba(test_features)[:, 1]
                 metrics_dict = {
-                    "AUROC": lambda: metrics.roc_auc_score(test_labels, prob_predictions),
-                    "AveragePrecision": lambda: metrics.average_precision_score(test_labels, prob_predictions),
-                    "Accuracy": lambda: metrics.accuracy_score(test_labels, predictions),
+                    "AUROC": lambda: metrics.roc_auc_score(
+                        test_labels, prob_predictions
+                    ),
+                    "AveragePrecision": lambda: metrics.average_precision_score(
+                        test_labels, prob_predictions
+                    ),
+                    "Accuracy": lambda: metrics.accuracy_score(
+                        test_labels, predictions
+                    ),
                 }
             else:
                 metrics_dict = {
-                    "MAE": lambda: metrics.mean_absolute_error(test_labels, predictions),
-                    "RMSE": lambda: np.sqrt(metrics.mean_squared_error(test_labels, predictions)),
+                    "MAE": lambda: metrics.mean_absolute_error(
+                        test_labels, predictions
+                    ),
+                    "RMSE": lambda: np.sqrt(
+                        metrics.mean_squared_error(test_labels, predictions)
+                    ),
                     "MSE": lambda: metrics.mean_squared_error(test_labels, predictions),
                     "R2": lambda: metrics.r2_score(test_labels, predictions),
                 }
@@ -145,7 +166,9 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
             default_path = os.path.join("./logs/benchmark/", run_name)
             output_dir = os.path.join(default_path, dataset)
             os.makedirs(output_dir, exist_ok=True)
-            with open(os.path.join(output_dir, f"{feat_name}_metrics_{str(i)}.json"), "w+") as fp:
+            with open(
+                os.path.join(output_dir, f"{feat_name}_metrics_{str(i)}.json"), "w+"
+            ) as fp:
                 json.dump(metric_values, fp)
 
 
@@ -153,7 +176,7 @@ def cv(dataset, summary_df, giraffe_model_ckpt, run_name):
 @click.option(
     "-m",
     "--giraffe_model_ckpt",
-    default="models/pub_vae_sig_final/atfp_70.pt",
+    default="models/wae_pub_final/atfp_70.pt",
     help="Checkpoint of the trained Giraffe model.",
 )
 @click.option("-n", "--name", default=None, help="Name of the benchmark run.")

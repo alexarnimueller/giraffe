@@ -16,12 +16,18 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 
 
 @click.command()
-@click.option("-s", "--start", default="O=C(O)[C@@H]2N3C(=O)[C@@H](NC(=O)[C@@H](c1ccc(O)cc1)N)[C@H]3SC2(C)C")
+@click.option(
+    "-s",
+    "--start",
+    default="O=C(O)[C@@H]2N3C(=O)[C@@H](NC(=O)[C@@H](c1ccc(O)cc1)N)[C@H]3SC2(C)C",
+)
 @click.option("-e", "--end", default="c1ccccc1C2=NCC(=O)N(C)c3ccc(Cl)cc23")
 @click.option("-n", "--n_steps", default=100)
 @click.option("-t", "--temp", default=0.25)
-@click.option("-o", "--epoch", default=85)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/siglin_wae2")
+@click.option("-o", "--epoch", default=70)
+@click.option(
+    "-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/wae_pub"
+)
 def main(start, end, n_steps, temp, epoch, checkpoint):
     name = checkpoint.split("/")[-1]
     # sample from interpolation
@@ -42,19 +48,14 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
             "-c",
             checkpoint,
             "-o",
-            f"output/interpolation_props_{name}.csv",
+            f"{WDIR}/output/interpolation_props_{name}.csv",
         ]
     )
     # read sampled compounds and calculate properties
-    subprocess.run(
-        [
-            "cp",
-            f"{WDIR}/output/interpolation_props_{name}.csv",
-            f"{WDIR}/examples/figures/interpolation_props_{name}.csv",
-        ]
+    data = pd.read_csv(f"{WDIR}/output/interpolation_props_{name}.csv")
+    data["Mol"] = data["SMILES"].apply(
+        lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None
     )
-    data = pd.read_csv(f"{WDIR}/examples/figures/interpolation_props_{name}.csv")
-    data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
     data["Desc"] = data["Mol"].apply(lambda m: CalcMolDescriptors(m) if m else None)
 
     if len(data) < n_steps:  # if invalid molecules found
@@ -62,10 +63,34 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
 
     # plot
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
-    ax1.plot(range(n_steps), data["Desc"].apply(lambda row: row["MolWt"]), "k", label="MW", lw=2)
-    ax2.plot(range(n_steps), data["Desc"].apply(lambda row: row["MolLogP"]), "k", label="LogP", lw=2)
-    ax3.plot(range(n_steps), data["Desc"].apply(lambda row: row["TPSA"]), "k", label="TPSA", lw=2)
-    ax4.plot(range(n_steps), data["Desc"].apply(lambda row: row["FractionCSP3"]), "k", label="fCsp3", lw=2)
+    ax1.plot(
+        range(n_steps),
+        data["Desc"].apply(lambda row: row["MolWt"]),
+        "k",
+        label="MW",
+        lw=2,
+    )
+    ax2.plot(
+        range(n_steps),
+        data["Desc"].apply(lambda row: row["MolLogP"]),
+        "k",
+        label="LogP",
+        lw=2,
+    )
+    ax3.plot(
+        range(n_steps),
+        data["Desc"].apply(lambda row: row["TPSA"]),
+        "k",
+        label="TPSA",
+        lw=2,
+    )
+    ax4.plot(
+        range(n_steps),
+        data["Desc"].apply(lambda row: row["FractionCSP3"]),
+        "k",
+        label="fCsp3",
+        lw=2,
+    )
     ax1.set_ylabel("MW", fontsize=16, fontweight="bold")
     ax2.set_ylabel("LogP", fontsize=16, fontweight="bold")
     ax3.set_xlabel("# Steps", fontsize=16, fontweight="bold")
@@ -77,7 +102,7 @@ def main(start, end, n_steps, temp, epoch, checkpoint):
     ax3.legend(loc="best", fontsize=14)
     ax4.legend(loc="best", fontsize=14)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/examples/figures/interpolation_props_{name}.png")
+    plt.savefig(f"{WDIR}/output/interpolation_props_{name}.png")
     plt.close(fig)
 
 

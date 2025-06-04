@@ -19,16 +19,21 @@ WDIR = os.path.dirname(os.path.abspath(__file__).replace("examples/", ""))
 @click.command()
 @click.option("-n", "--n_mols", default=10000)
 @click.option("-t", "--temp", default=0.01)
-@click.option("-o", "--epoch", default=100)
-@click.option("-c", "--checkpoint", type=click.Path(exists=True), default=f"{WDIR}/models/pub_vae_lin4_final")
+@click.option("-o", "--epoch", default=70)
+@click.option(
+    "-c",
+    "--checkpoint",
+    type=click.Path(exists=True),
+    default=f"{WDIR}/models/wae_pub",
+)
 @click.option("--col", type=str, default="black")
 def main(n_mols, temp, epoch, checkpoint, col):
     # sample from interpolation
+    name = checkpoint.split("/")[-1]
     subprocess.run(
         [
             "python",
             f"{WDIR}/sampling.py",
-            "-v",
             "-n",
             str(n_mols),
             "-t",
@@ -39,20 +44,28 @@ def main(n_mols, temp, epoch, checkpoint, col):
             checkpoint,
             "-p",
             "-o",
-            "similarity_parent.csv",
+            f"{WDIR}/output/similarity_parent_{name}.csv",
         ]
     )
     # read sampled compounds and calculate fingerprints
-    subprocess.run(["cp", f"{WDIR}/output/similarity_parent.csv", f"{WDIR}/examples/figures/similarity_parent.csv"])
-    data = pd.read_csv(f"{WDIR}/examples/figures/similarity_parent.csv")
-    data["Mol"] = data["SMILES"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
-    data["Mol_Parent"] = data["Parent"].apply(lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None)
-    data["FP"] = data["Mol"].apply(lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None)
-    data["FP_Parent"] = data["Mol_Parent"].apply(lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None)
+    data = pd.read_csv(f"{WDIR}/output/similarity_parent_{name}.csv")
+    data["Mol"] = data["SMILES"].apply(
+        lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None
+    )
+    data["Mol_Parent"] = data["Parent"].apply(
+        lambda s: MolFromSmiles(s) if MolFromSmiles(s) else None
+    )
+    data["FP"] = data["Mol"].apply(
+        lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None
+    )
+    data["FP_Parent"] = data["Mol_Parent"].apply(
+        lambda m: AllChem.GetMorganFingerprint(m, 2) if m else None
+    )
 
     # calculate similarity to parent
     data["Tanimoto Similarity"] = data.apply(
-        lambda row: DiceSimilarity(row["FP"], row["FP_Parent"]) if row["FP"] else None, axis=1
+        lambda row: DiceSimilarity(row["FP"], row["FP_Parent"]) if row["FP"] else None,
+        axis=1,
     )
 
     if len(data) < n_mols:  # if invalid molecules found
@@ -60,14 +73,16 @@ def main(n_mols, temp, epoch, checkpoint, col):
 
     # save
     data[["SMILES", "Parent", "Tanimoto Similarity"]].to_csv(
-        f"{WDIR}/examples/figures/similarity_parent.csv", index=False
+        f"{WDIR}/output/similarity_parent_{name}.csv", index=False
     )
 
     # plot
-    sns.displot(data["Tanimoto Similarity"], kind="kde", fill=True, color=col, aspect=1.5)
+    sns.displot(
+        data["Tanimoto Similarity"], kind="kde", fill=True, color=col, aspect=1.5
+    )
     plt.xlim(0.2, 1.0)
     plt.tight_layout()
-    plt.savefig(f"{WDIR}/examples/figures/similarity_parent.pdf")
+    plt.savefig(f"{WDIR}/output/similarity_parent_{name}.pdf")
     plt.close()
 
 
