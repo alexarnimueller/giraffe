@@ -1,13 +1,17 @@
-*HPC*/
-benchmarks/
-models/
-logs/
-output/
-data/*prop*
-examples/figures/*
+giraffe/*HPC*/
+giraffe/benchmarks/
+giraffe/models/
+giraffe/logs/
+giraffe/output/
+giraffe/data/*prop*
+giraffe/examples/figures/*
 
 backup.txt
 Thumbs.db
+
+# editors
+.vscode/
+.idea/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
