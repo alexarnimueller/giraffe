@@ -19,18 +19,26 @@ from rdkit.Chem import (
 )
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-from descriptors import (
+from giraffe.descriptors import (
     cats_descriptor,
     numpy_fps,
     numpy_maccs,
     parallel_pairwise_similarities,
 )
 
-ATOMTYPES = {h: i for i, h in enumerate(["H", "C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B", "Si"])}
+ATOMTYPES = {
+    h: i
+    for i, h in enumerate(
+        ["H", "C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B", "Si"]
+    )
+}
 i_pre = max(ATOMTYPES.values()) + 1
 IS_RING = {h: i + i_pre for i, h in enumerate(["False", "True"])}
 i_pre = max(IS_RING.values()) + 1
-HYBRIDISATIONS = {h: i + i_pre for i, h in enumerate(["SP3", "SP2", "SP", "S", "SP3D", "SP3D2", "UNSPECIFIED"])}
+HYBRIDISATIONS = {
+    h: i + i_pre
+    for i, h in enumerate(["SP3", "SP2", "SP", "S", "SP3D", "SP3D2", "UNSPECIFIED"])
+}
 i_pre = max(HYBRIDISATIONS.values()) + 1
 AROMATICITY = {h: i + i_pre for i, h in enumerate(["False", "True"])}
 DIM_EMBEDDING = max(AROMATICITY.values()) + 1
@@ -97,7 +105,9 @@ def extract_murcko_scaffolds_marked(mol, mark="[*]"):
     try:
         core = MurckoScaffold.GetScaffoldForMol(m1)
         tmp = ReplaceSidechains(m1, core)
-        smi = MolToSmiles(tmp, isomericSmiles=True)  # isomericSmiles adds a number to the dummy atoms.
+        smi = MolToSmiles(
+            tmp, isomericSmiles=True
+        )  # isomericSmiles adds a number to the dummy atoms.
     except Exception:
         return ""
 
@@ -121,7 +131,9 @@ def extract_side_chains(mol, remove_duplicates=False, mark="[*]"):
     try:
         core = MurckoScaffold.GetScaffoldForMol(m1)
         side_chain = ReplaceCore(m1, core)
-        smi = MolToSmiles(side_chain, isomericSmiles=True)  # isomericSmiles adds a number to the dummy atoms.
+        smi = MolToSmiles(
+            side_chain, isomericSmiles=True
+        )  # isomericSmiles adds a number to the dummy atoms.
     except Exception:
         return list()
     for i in pos:
@@ -142,8 +154,12 @@ def decorate_scaffold(scaffold, sidechains, num=10):
     """
     # check if side chains contain rings & adapt the ring number to not confuse them with the ones already in the scaff
     try:
-        ring_scaff = int(max(list(filter(str.isdigit, scaffold))))  # get highest number of ring in scaffold
-        ring_sc = list(filter(str.isdigit, scaffold))  # get number of rings in side chains
+        ring_scaff = int(
+            max(list(filter(str.isdigit, scaffold)))
+        )  # get highest number of ring in scaffold
+        ring_sc = list(
+            filter(str.isdigit, scaffold)
+        )  # get number of rings in side chains
         for r in ring_sc:
             sidechains = sidechains.replace(
                 r, str(ring_scaff + int(r))
@@ -222,7 +238,9 @@ def get_most_similar(smiles, referencemol, n=10, desc="FCFP4", similarity="tanim
         d_lib = cats_descriptor([MolFromSmiles(s) for s in smiles])
         d_ref = cats_descriptor([MolFromSmiles(referencemol)])
     else:
-        raise NotImplementedError("Only FCFP4, MACCS or CATS fingerprints are available!")
+        raise NotImplementedError(
+            "Only FCFP4, MACCS or CATS fingerprints are available!"
+        )
 
     sims = parallel_pairwise_similarities(d_lib, d_ref, similarity).flatten()
     if desc == "CATS":
@@ -326,7 +344,9 @@ def read_config_ini(folder_file):
     if os.path.isfile(folder_file):
         ini.read(folder_file)
     else:
-        f_ini = os.path.join(folder_file, f"{os.path.basename(os.path.normpath(folder_file))}.ini")
+        f_ini = os.path.join(
+            folder_file, f"{os.path.basename(os.path.normpath(folder_file))}.ini"
+        )
         ini.read(f_ini)
     conf = {}
     for k, v in ini["CONFIG"].items():
@@ -348,7 +368,11 @@ def mse_with_nans(y_pred, y_true):
 
 def ce_with_nans(y_pred, y_true):
     mask = ~torch.isnan(y_true).to(y_pred.device)
-    return torch.nn.functional.cross_entropy(y_pred[mask], y_true[mask]) / mask.sum() if mask.sum() > 0 else 1e-6
+    return (
+        torch.nn.functional.cross_entropy(y_pred[mask], y_true[mask]) / mask.sum()
+        if mask.sum() > 0
+        else 1e-6
+    )
 
 
 def click_with_config_file(config_file_param_name):

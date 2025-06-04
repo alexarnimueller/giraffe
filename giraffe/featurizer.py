@@ -19,9 +19,9 @@ from rdkit.Chem import Descriptors
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprint
 from torch_geometric.loader import DataLoader
 
-from dataset import AttFPDataset, PropertyScaler
-from model import AttentiveFP, AttentiveFP2
-from utils import get_input_dims, read_config_ini
+from giraffe.dataset import AttFPDataset, PropertyScaler
+from giraffe.model import AttentiveFP, AttentiveFP2
+from giraffe.utils import get_input_dims, read_config_ini
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -150,7 +150,9 @@ class PhysChemFeaturizer(RDKitFeaturizer):
             fingerprint_extra_args = {}
 
         self.descriptors = self._get_descriptor_list(
-            named_descriptor_set=named_descriptor_set, descriptor_list=descriptors, subset_size=subset_size
+            named_descriptor_set=named_descriptor_set,
+            descriptor_list=descriptors,
+            subset_size=subset_size,
         )
 
         self.fingerprint_extra_args = fingerprint_extra_args
@@ -806,10 +808,14 @@ class PhysChemFeaturizer(RDKitFeaturizer):
 
     @staticmethod
     def _get_descriptor_list(
-        named_descriptor_set: str = "all", descriptor_list: List[str] = [], subset_size: int = 200
+        named_descriptor_set: str = "all",
+        descriptor_list: List[str] = [],
+        subset_size: int = 200,
     ):
         if len(descriptor_list) == 0:
-            descriptor_list = PhysChemFeaturizer.get_descriptor_subset(named_descriptor_set, subset_size)
+            descriptor_list = PhysChemFeaturizer.get_descriptor_subset(
+                named_descriptor_set, subset_size
+            )
         else:  # else use the named_descriptor_set given by the user
             assert isinstance(descriptor_list, list)
 
@@ -833,9 +839,18 @@ class PhyschemScaler:
     def prepare_cdfs(self):
         cdfs = {}
 
-        dist_subset = dict(filter(lambda elem: elem[0] in self.descriptor_list, self.dists.items()))
+        dist_subset = dict(
+            filter(lambda elem: elem[0] in self.descriptor_list, self.dists.items())
+        )
 
-        for descriptor_name, (dist, params, minV, maxV, avg, std) in dist_subset.items():
+        for descriptor_name, (
+            dist,
+            params,
+            minV,
+            maxV,
+            avg,
+            std,
+        ) in dist_subset.items():
             arg = params[:-2]  # type: ignore
             loc = params[-2]  # type: ignore
             scale = params[-1]  # type: ignore
@@ -854,7 +869,8 @@ class PhyschemScaler:
     def transform(self, X):
         # transform each column with the corresponding descriptor
         transformed_list = [
-            self.cdfs[descriptor](X[:, idx])[..., np.newaxis] for idx, descriptor in enumerate(self.descriptor_list)
+            self.cdfs[descriptor](X[:, idx])[..., np.newaxis]
+            for idx, descriptor in enumerate(self.descriptor_list)
         ]
         transformed = np.concatenate(transformed_list, axis=1)
 
@@ -864,7 +880,9 @@ class PhyschemScaler:
         return transformed
 
     def transform_single(self, X):
-        assert len(X.shape) == 1, "When using transform_single, input should have a 1-dimensional shape (e.g. (200,))"
+        assert (
+            len(X.shape) == 1
+        ), "When using transform_single, input should have a 1-dimensional shape (e.g. (200,))"
 
         X = X[np.newaxis, :]
         transformed = self.transform(X)
@@ -919,7 +937,9 @@ class MorganFPFeaturizer(RDKitFeaturizer):
             **self.fingerprint_extra_args,
         )
         fp = rdkit_sparse_array_to_np(
-            fp.GetNonzeroElements().items(), use_counts=self.use_counts, fp_size=self.fp_size
+            fp.GetNonzeroElements().items(),
+            use_counts=self.use_counts,
+            fp_size=self.fp_size,
         )
 
         return fp, True
@@ -945,7 +965,9 @@ def rdkit_dense_array_to_np(dense_fp, dtype=np.int32):
     elif len(dense_fp.shape) == 2 and dense_fp.shape[0] == 1:
         dense_fp = np.squeeze(dense_fp, axis=0)
     else:
-        raise ValueError("Input matrix should either have shape of (fp_size, ) or (1, fp_size).")
+        raise ValueError(
+            "Input matrix should either have shape of (fp_size, ) or (1, fp_size)."
+        )
 
     return np.array(dense_fp)
 
@@ -991,7 +1013,9 @@ class GiraffeFeaturizer:
         """
         super().__init__()
         self.checkpoint_path = checkpoint_path
-        self.model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.dirname(checkpoint_path)))
+        self.model_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), os.path.dirname(checkpoint_path))
+        )
         self.device = device or "cuda" if torch.cuda.is_available() else "cpu"
         self.dim_atom, self.dim_bond = get_input_dims()
         self.n_jobs = n_jobs
@@ -1014,7 +1038,9 @@ class GiraffeFeaturizer:
 
         # load model
         logger.debug(f"Loading pretrained model from {checkpoint_path}")
-        self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
+        self.model.load_state_dict(
+            torch.load(checkpoint_path, map_location=self.device)
+        )
         self.model = self.model.to(self.device)
         self.model.eval()
 
@@ -1032,10 +1058,16 @@ class GiraffeFeaturizer:
         return features, valid[0]
 
     @torch.no_grad
-    def transform(self, molecules: Sequence[Any]) -> Tuple[Union[Dict, np.ndarray], np.ndarray]:
+    def transform(
+        self, molecules: Sequence[Any]
+    ) -> Tuple[Union[Dict, np.ndarray], np.ndarray]:
         dataset = AttFPDataset(molecules)
-        loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=self.n_jobs)
-        embs = torch.empty((0, self.model.out_channels), dtype=torch.float32).to(self.device)
+        loader = DataLoader(
+            dataset, batch_size=256, shuffle=False, num_workers=self.n_jobs
+        )
+        embs = torch.empty((0, self.model.out_channels), dtype=torch.float32).to(
+            self.device
+        )
         for g in loader:
             g = g.to(self.device)
             if self.vae:

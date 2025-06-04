@@ -61,7 +61,9 @@ def tanimoto(vector1, vector2):
     """
     a = np.where(vector1 == 1)[0]
     b = np.where(vector2 == 1)[0]
-    return len(np.intersect1d(a, b)) / (float(len(a) + len(b)) - len(np.intersect1d(a, b)))
+    return len(np.intersect1d(a, b)) / (
+        float(len(a) + len(b)) - len(np.intersect1d(a, b))
+    )
 
 
 def cosine_dist(vector1, vector2):
@@ -94,7 +96,13 @@ def numpy_fps(mols, r, features=True, bits=1024):
     :return: numpy array containing row-wise fingerprints for every molecule
     """
     return _rdk2numpy(
-        [AllChem.GetMorganFingerprintAsBitVect(m, r, useFeatures=features, nBits=bits) for m in mols if m]
+        [
+            AllChem.GetMorganFingerprintAsBitVect(
+                m, r, useFeatures=features, nBits=bits
+            )
+            for m in mols
+            if m
+        ]
     )
 
 
@@ -222,9 +230,13 @@ def fp_similarity(fp1, fp2, metric="tanimoto"):
         elif metric.lower() == "euclidean":
             return euclidean_dist(fp1, fp2)
         else:
-            raise NotImplementedError("Only the following distance metrics are available: tanimoto, cosine, euclidean")
+            raise NotImplementedError(
+                "Only the following distance metrics are available: tanimoto, cosine, euclidean"
+            )
     else:
-        raise TypeError("Fingerprints must be of type numpy.ndarray or rdkit.DataStructs.cDataStructs.ExplicitBitVect")
+        raise TypeError(
+            "Fingerprints must be of type numpy.ndarray or rdkit.DataStructs.cDataStructs.ExplicitBitVect"
+        )
 
 
 def list2batches(lst, n):
@@ -269,9 +281,9 @@ def parallel_pairwise_similarities(fps, fps2=None, metric="tanimoto"):
     if len(fps) < int(
         10 * cpu_count()
     ):  # if only small array, don't parallelize and calculate all internal similarities
-        rslt = np.array([list(map(lambda x: fp_similarity(fp, x, metric), fps)) for fp in fps2]).reshape(
-            (len(fps), len(fps2), 1)
-        )
+        rslt = np.array(
+            [list(map(lambda x: fp_similarity(fp, x, metric), fps)) for fp in fps2]
+        ).reshape((len(fps), len(fps2), 1))
     else:
         queue = Queue()
         rslt = []
@@ -303,7 +315,9 @@ def get_n_neighbors(fps, fps2, n, metric="tanimoto"):
     :return: {numpy.ndarray} n indices for every member of fps, corresponding to the indices of the molecules in fps2
     """
     sims = parallel_pairwise_similarities(fps, fps2, metric)
-    return np.argsort(sims)[:, -n:][:, ::-1]  # indices of n most similar members of fps2 for every member of fps
+    return np.argsort(sims)[:, -n:][
+        :, ::-1
+    ]  # indices of n most similar members of fps2 for every member of fps
 
 
 def minmax(m, num=10, metric="tanimoto", seed=42):
@@ -317,7 +331,9 @@ def minmax(m, num=10, metric="tanimoto", seed=42):
     """
     np.random.seed(seed)
     if num > m.shape[0]:
-        raise ValueError("Number of selections can't be larger than number of instances in M.")
+        raise ValueError(
+            "Number of selections can't be larger than number of instances in M."
+        )
 
     start = time()  # tic
     pool = m  # Store pool from which the selections get removed
@@ -325,7 +341,9 @@ def minmax(m, num=10, metric="tanimoto", seed=42):
     # Randomly selecting first molecule into the sele
     idx = int(np.random.randint(0, m.shape[0], 1))
     sele = pool[idx : idx + 1, :]
-    minmaxidx = np.where(np.all(m == pool[idx : idx + 1, :], axis=1))[0].tolist()  # store original indices to return
+    minmaxidx = np.where(np.all(m == pool[idx : idx + 1, :], axis=1))[
+        0
+    ].tolist()  # store original indices to return
 
     # Deleting selected molecule in selection from pool
     pool = np.delete(pool, idx, axis=0)
@@ -337,12 +355,18 @@ def minmax(m, num=10, metric="tanimoto", seed=42):
             dist = 1 - dist
 
         # Choosing maximal distances for every selected instance
-        maxidx = np.argmax(dist, axis=0)  # index of most distant instance to each of compounds that were selected
-        maxcols = np.max(dist, axis=0)  # value of most distant instance to each of compounds that were selected
+        maxidx = np.argmax(
+            dist, axis=0
+        )  # index of most distant instance to each of compounds that were selected
+        maxcols = np.max(
+            dist, axis=0
+        )  # value of most distant instance to each of compounds that were selected
 
         # Choosing minimal distance among the maximal distances
         minmax = np.argmin(maxcols)  # index of lowest distance value within maxcols
-        idx = int(maxidx[minmax])  # index of the least most distant instance to each of the selected ones
+        idx = int(
+            maxidx[minmax]
+        )  # index of the least most distant instance to each of the selected ones
 
         # Adding it to selection minmax indices and removing from pool
         sele = np.vstack((sele, pool[idx : idx + 1, :]))
@@ -381,10 +405,25 @@ def get_cats_factory(features="cats", names=False):
         fdef = fdef_rdkit
     factory = ChemicalFeatures.BuildFeatureFactoryFromString(fdef)
     sigfactory = SigFactory(factory, useCounts=True, minPointCount=2, maxPointCount=2)
-    sigfactory.SetBins([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8), (8, 9), (9, 10)])
+    sigfactory.SetBins(
+        [
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 8),
+            (8, 9),
+            (9, 10),
+        ]
+    )
     sigfactory.Init()
     if names:
-        descs = [sigfactory.GetBitDescription(i) for i in range(sigfactory.GetSigSize())]
+        descs = [
+            sigfactory.GetBitDescription(i) for i in range(sigfactory.GetSigSize())
+        ]
         return sigfactory, descs
     else:
         return sigfactory
@@ -402,7 +441,9 @@ def _cats_corr(mols, q):
     for mol in mols:
         arr = np.zeros((1,))
         ConvertToNumpyArray(Generate.Gen2DFingerprint(mol, factory), arr)
-        scale = np.array([10 * [sum(arr[i : i + 10])] for i in range(0, 210, 10)]).flatten()
+        scale = np.array(
+            [10 * [sum(arr[i : i + 10])] for i in range(0, 210, 10)]
+        ).flatten()
         fps.append(np.divide(arr, scale, out=np.zeros_like(arr), where=scale != 0))
     q.put(np.array(fps).reshape((len(mols), 210)).astype("float32"))
 
@@ -418,7 +459,9 @@ def _one_cats(mol):
     arr = np.zeros((1,))
     ConvertToNumpyArray(Generate.Gen2DFingerprint(mol, factory), arr)
     scale = np.array([10 * [sum(arr[i : i + 10])] for i in range(0, 210, 10)]).flatten()
-    return np.divide(arr, scale, out=np.zeros_like(arr), where=scale != 0).astype("float32")
+    return np.divide(arr, scale, out=np.zeros_like(arr), where=scale != 0).astype(
+        "float32"
+    )
 
 
 def cats_descriptor(mols):

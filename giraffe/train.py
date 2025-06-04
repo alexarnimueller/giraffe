@@ -15,8 +15,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
-from dataset import AttFPDataset, AttFPTableDataset, load_from_fname, tokenizer
-from model import (
+from giraffe.dataset import AttFPDataset, AttFPTableDataset, load_from_fname, tokenizer
+from giraffe.model import (
     FFNN,
     LSTM,
     AttentiveFP,
@@ -25,8 +25,8 @@ from model import (
     reparameterize,
     vae_loss_func,
 )
-from sampling import temperature_sampling
-from utils import click_config_file, get_input_dims
+from giraffe.sampling import temperature_sampling
+from giraffe.utils import click_config_file, get_input_dims
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -46,24 +46,50 @@ DEFAULT_CFG = "./configs/default.ini"
     help="Read option defaults from the specified INI config file",
     show_default=True,
 )
-@click.option("--config", type=click.Path(), help="Optional: path to config file to set parameter values.")
-@click.option("-f", "--filename", type=click.Path(), help="Name of the file containing the training data.")
-@click.option("-n", "--run_name", help="Name of the run for saving (filename if omitted).")
+@click.option(
+    "--config",
+    type=click.Path(),
+    help="Optional: path to config file to set parameter values.",
+)
+@click.option(
+    "-f",
+    "--filename",
+    type=click.Path(),
+    help="Name of the file containing the training data.",
+)
+@click.option(
+    "-n", "--run_name", help="Name of the run for saving (filename if omitted)."
+)
 @click.option("-d", "--delimiter", help="Column delimiter of input file.")
 @click.option("-c", "--smls_col", help="Name of column that contains SMILES.")
 @click.option("-e", "--epochs", type=int, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", type=float, help="Dropout fraction.")
 @click.option("-b", "--batch_size", type=int, help="Number of molecules per batch.")
-@click.option("-p", "--props", help="Comma-seperated list of descriptors to use. All, if omitted")
-@click.option("--random/--no-random", help="Randomly sample molecules in each training step.")
-@click.option("--epoch_steps", "--es", type=int, help="If random, number of batches per epoch.")
-@click.option("-v", "--frac_val", type=float, help="Fraction of the data to use for validation.")
+@click.option(
+    "-p", "--props", help="Comma-seperated list of descriptors to use. All, if omitted"
+)
+@click.option(
+    "--random/--no-random", help="Randomly sample molecules in each training step."
+)
+@click.option(
+    "--epoch_steps", "--es", type=int, help="If random, number of batches per epoch."
+)
+@click.option(
+    "-v", "--frac_val", type=float, help="Fraction of the data to use for validation."
+)
 @click.option("-l", "--lr", type=float, help="Learning rate.")
 @click.option("--lr_fact", "--lf", type=float, help="Learning rate decay factor.")
 @click.option("--lr_step", "--ls", type=int, help="LR Step decay after nr. of epochs.")
 @click.option("-a", "--save_after", type=int, help="Epoch steps to save model.")
-@click.option("-t", "--temp", type=float, help="Temperature to use during SMILES sampling.")
-@click.option("--n_sample", "--ns", type=int, help="Nr. SMILES to sample after each trainin epoch.")
+@click.option(
+    "-t", "--temp", type=float, help="Temperature to use during SMILES sampling."
+)
+@click.option(
+    "--n_sample",
+    "--ns",
+    type=int,
+    help="Nr. SMILES to sample after each trainin epoch.",
+)
 @click.option("--kernels_gnn", "--nk", type=int, help="Nr. GNN kernels")
 @click.option("--layers_gnn", "--ng", type=int, help="Nr. GNN layers")
 @click.option("--layers_rnn", "--nr", type=int, help="Nr. RNN layers")
@@ -72,23 +98,70 @@ DEFAULT_CFG = "./configs/default.ini"
 @click.option("--dim_rnn", "--dr", type=int, help="Hidden dimension of RNN layers")
 @click.option("--dim_tok", "--dt", type=int, help="Dimension of RNN token embedding")
 @click.option("--dim_mlp", "--dm", type=int, help="Hidden dimension of MLP layers")
-@click.option("--weight_prop", "--wp", type=float, help="Factor for weighting property loss in VAE loss")
-@click.option("--weight_vae", "--wk", type=float, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option(
+    "--weight_prop",
+    "--wp",
+    type=float,
+    help="Factor for weighting property loss in VAE loss",
+)
+@click.option(
+    "--weight_vae",
+    "--wk",
+    type=float,
+    help="Factor for weighting KL divergence loss in VAE loss",
+)
 @click.option(
     "--anneal_type",
     "--at",
     help="Shape of VAE weight annealing: constant, linear, sigmoid, cyc_linear, cyc_sigmoid, cyc_sigmoid_lin",
 )
-@click.option("--anneal_start", "--as", type=int, help="Epoch at which to start VAE loss annealing.")
-@click.option("--anneal_stop", "--ao", type=int, help="Epoch at which to stop VAE loss annealing & stay const.")
-@click.option("--anneal_cycle", "--ac", type=int, help="Number of epochs for one VAE loss annealing cycle")
-@click.option("--anneal_grow", "--ag", type=int, help="Number of annealing cycles with increasing values")
-@click.option("--anneal_ratio", "--ar", type=float, help="Fraction of annealing vs. constant VAE loss weight")
-@click.option("--vae/--no-vae", help="Whether to train a variational AE or classical AE")
-@click.option("--wae/--no-wae", help="Whether to train a Wasserstein autoencoder using MMD")
-@click.option("--lambd", type=float, default=1.0, help="Lambda factor for the MMD equation in the WAE loss")
+@click.option(
+    "--anneal_start",
+    "--as",
+    type=int,
+    help="Epoch at which to start VAE loss annealing.",
+)
+@click.option(
+    "--anneal_stop",
+    "--ao",
+    type=int,
+    help="Epoch at which to stop VAE loss annealing & stay const.",
+)
+@click.option(
+    "--anneal_cycle",
+    "--ac",
+    type=int,
+    help="Number of epochs for one VAE loss annealing cycle",
+)
+@click.option(
+    "--anneal_grow",
+    "--ag",
+    type=int,
+    help="Number of annealing cycles with increasing values",
+)
+@click.option(
+    "--anneal_ratio",
+    "--ar",
+    type=float,
+    help="Fraction of annealing vs. constant VAE loss weight",
+)
+@click.option(
+    "--vae/--no-vae", help="Whether to train a variational AE or classical AE"
+)
+@click.option(
+    "--wae/--no-wae", help="Whether to train a Wasserstein autoencoder using MMD"
+)
+@click.option(
+    "--lambd",
+    type=float,
+    default=1.0,
+    help="Lambda factor for the MMD equation in the WAE loss",
+)
 @click.option("--sigma", type=float, default=1.0, help="Sigma of the prior")
-@click.option("--scaled-props/--no-scaled-props", help="Whether to scale all properties from 0 to 1")
+@click.option(
+    "--scaled-props/--no-scaled-props",
+    help="Whether to scale all properties from 0 to 1",
+)
 @click.option("--n_proc", "--np", type=int, help="Number of CPU processes to use")
 def main(
     config,
@@ -195,7 +268,9 @@ def main(
     # load data to determine if there are properties
     print(f"\nReading SMILES dataset {filename} ...")
     content = load_from_fname(filename, smls_col=smls_col, delimiter=delimiter)
-    DatasetClass = AttFPDataset if content.columns.tolist() == [smls_col] else AttFPTableDataset
+    DatasetClass = (
+        AttFPDataset if content.columns.tolist() == [smls_col] else AttFPTableDataset
+    )
     dataset = DatasetClass(
         filename=filename,
         delimiter=delimiter,
@@ -206,9 +281,23 @@ def main(
         steps=int(epoch_steps * batch_size * (1 + frac_val)),
     )
     config["n_props"] = n_props = dataset.n_props
-    train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - frac_val, frac_val])
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
-    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
+    train_set, val_set = torch.utils.data.random_split(
+        dataset, [1.0 - frac_val, frac_val]
+    )
+    train_loader = DataLoader(
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=n_proc,
+        drop_last=False,
+    )
+    valid_loader = DataLoader(
+        val_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=n_proc,
+        drop_last=False,
+    )
 
     # store config file for later sampling, retraining etc.
     with open(f"{path_model}{run_name}.ini", "w") as configfile:
@@ -233,7 +322,9 @@ def main(
         layers=layers_rnn,
         dropout=dropout,
     ).to(DEVICE)
-    mlp = FFNN(input_dim=dim_rnn, hidden_dim=dim_mlp, n_layers=layers_mlp, output_dim=n_props).to(DEVICE)
+    mlp = FFNN(
+        input_dim=dim_rnn, hidden_dim=dim_mlp, n_layers=layers_mlp, output_dim=n_props
+    ).to(DEVICE)
 
     # Calculate model parameters
     gnn_parameters = filter(lambda p: p.requires_grad, gnn.parameters())
@@ -248,9 +339,13 @@ def main(
     print(f"  Total parameters: {(mlp_params + rnn_params + gnn_params) / 1e6:.2f}M")
 
     # Define optimizer and loss criteria
-    opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
+    opt_params = (
+        list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
+    )
     optimizer = torch.optim.Adam(opt_params, lr=lr)
-    schedule = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_fact)
+    schedule = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=lr_step, gamma=lr_fact
+    )
     criterion1 = nn.CrossEntropyLoss(reduction="mean")
     criterion2 = nn.MSELoss(reduction="mean")
     writer = SummaryWriter(path_loss)
@@ -385,7 +480,10 @@ def train_one_epoch(
         else:
             hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
         hn = torch.cat(
-            [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
+            [hn.unsqueeze(0)]
+            + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)]
+            * (rnn.n_layers - 1),
+            dim=0,
         )
 
         # start with initial embedding from graph and zeros as cell state
@@ -394,23 +492,34 @@ def train_one_epoch(
         # now get learn tokens using Teacher Forcing
         loss_mol = torch.zeros(1).to(DEVICE)
         finish = (trg == t2i["$"]).nonzero()[-1, 0]
-        for j in range(finish - 1):  # only loop until last end-token to prevent nan loss
+        for j in range(
+            finish - 1
+        ):  # only loop until last end-token to prevent nan loss
             nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
-            loss_fwd = torch.nan_to_num(criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :]), nan=1e-6)
+            loss_fwd = torch.nan_to_num(
+                criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :]), nan=1e-6
+            )
             loss_mol = torch.add(loss_mol, loss_fwd)
 
         # Properties loss (mask unavailable properties)
         pred_props = mlp(hn[0])
         pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
-        props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(-1, pred_props.size(1))
+        props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(
+            -1, pred_props.size(1)
+        )
         loss_props = torch.nan_to_num(criterion2(pred_props, props), nan=1e-6)
 
         if vae or wae:
             # combine losses in VAE style
             if wae:
-                mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
+                mu, var = (
+                    hn[0],
+                    None,
+                )  # no reparameterization, output is "mean", no var needed for loss
             f_vae = asteps[(epoch - 1) * steps + step]  # annealing)
-            loss, loss_vae = vae_loss_func(loss_mol / j, loss_props, mu, var, wk * f_vae, wp, wae, lambd, sigma)
+            loss, loss_vae = vae_loss_func(
+                loss_mol / j, loss_props, mu, var, wk * f_vae, wp, wae, lambd, sigma
+            )
             total_vae += loss_vae.cpu().detach().numpy()
         else:
             # combine losses, apply desired weight to property loss
@@ -426,21 +535,45 @@ def train_one_epoch(
         # write tensorboard summary
         step += 1
         if step % 10 == 0:
-            writer.add_scalar("loss_train_total", total_loss / step, (epoch - 1) * steps + step)
-            writer.add_scalar("loss_train_smiles", total_smls / step, (epoch - 1) * steps + step)
-            writer.add_scalar("loss_train_props", total_props / step, (epoch - 1) * steps + step)
+            writer.add_scalar(
+                "loss_train_total", total_loss / step, (epoch - 1) * steps + step
+            )
+            writer.add_scalar(
+                "loss_train_smiles", total_smls / step, (epoch - 1) * steps + step
+            )
+            writer.add_scalar(
+                "loss_train_props", total_props / step, (epoch - 1) * steps + step
+            )
             if vae or wae:
-                writer.add_scalar("loss_train_vae", total_vae / step, (epoch - 1) * steps + step)
+                writer.add_scalar(
+                    "loss_train_vae", total_vae / step, (epoch - 1) * steps + step
+                )
                 writer.add_scalar("vae_weight", wk * f_vae, (epoch - 1) * steps + step)
         if step % 500 == 0:
-            print(f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}")
+            print(
+                f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}"
+            )
 
     return (total_smls / steps, total_props / steps, total_vae / steps, f_vae)
 
 
 @torch.no_grad
 def validate_one_epoch(
-    gnn, rnn, mlp, criterion1, criterion2, valid_loader, writer, step, t2i, wp, wk, vae, wae, lambd, sigma
+    gnn,
+    rnn,
+    mlp,
+    criterion1,
+    criterion2,
+    valid_loader,
+    writer,
+    step,
+    t2i,
+    wp,
+    wk,
+    vae,
+    wae,
+    lambd,
+    sigma,
 ):
     gnn.train(False)
     rnn.train(False)
@@ -461,14 +594,19 @@ def validate_one_epoch(
             else:
                 hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
             hn = torch.cat(
-                [hn.unsqueeze(0)] + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)] * (rnn.n_layers - 1), dim=0
+                [hn.unsqueeze(0)]
+                + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)]
+                * (rnn.n_layers - 1),
+                dim=0,
             )
             cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
 
             # SMILES
             mol_loss = torch.zeros(1).to(DEVICE)
             finish = (trg == t2i["$"]).nonzero()[-1, 0]
-            for j in range(finish - 1):  # only loop until last end-token to prevent nan loss
+            for j in range(
+                finish - 1
+            ):  # only loop until last end-token to prevent nan loss
                 nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
                 loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
                 mol_loss = torch.add(mol_loss, loss_fwd)
@@ -477,12 +615,19 @@ def validate_one_epoch(
             # properties
             pred_props = mlp(hn[0])
             pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
-            props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(-1, pred_props.size(1))
+            props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(
+                -1, pred_props.size(1)
+            )
             loss_props = criterion2(pred_props, props)
             if vae or wae:  # vae
                 if wae:
-                    mu, var = hn[0], None  # no reparameterization, output is "mean", no var needed for loss
-                loss, loss_vae = vae_loss_func(mol_loss / j, loss_props, mu, var, wk, wp, wae, lambd, sigma)
+                    mu, var = (
+                        hn[0],
+                        None,
+                    )  # no reparameterization, output is "mean", no var needed for loss
+                loss, loss_vae = vae_loss_func(
+                    mol_loss / j, loss_props, mu, var, wk, wp, wae, lambd, sigma
+                )
                 total_vae += loss_vae.cpu().detach().numpy()
             else:  # just weighted
                 loss = mol_loss + torch.multiply(loss_props, wp)

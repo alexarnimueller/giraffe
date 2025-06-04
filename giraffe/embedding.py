@@ -16,9 +16,9 @@ from sklearn.decomposition import PCA
 from torch_geometric.loader import DataLoader
 from tqdm.auto import tqdm
 
-from dataset import AttFPDataset
-from model import AttentiveFP, AttentiveFP2
-from utils import get_input_dims, read_config_ini
+from giraffe.dataset import AttFPDataset
+from giraffe.model import AttentiveFP, AttentiveFP2
+from giraffe.utils import get_input_dims, read_config_ini
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -27,19 +27,62 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.argument("input_file")
 @click.argument("output_file")
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
-@click.option("-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-i", "--id_col", default=None, help="Name of column that contains compound IDs.")
-@click.option("-f", "--folder", default="models/siglin_wae2", help="Checkpoint folder to load models from.")
+@click.option(
+    "-c", "--smls_col", default="SMILES", help="Name of column that contains SMILES."
+)
+@click.option(
+    "-i", "--id_col", default=None, help="Name of column that contains compound IDs."
+)
+@click.option(
+    "-f",
+    "--folder",
+    default="models/siglin_wae2",
+    help="Checkpoint folder to load models from.",
+)
 @click.option("-e", "--epoch", default=85, help="Epoch of models to load.")
-@click.option("-b", "--batch_size", default=256, help="Batch size to use for embedding.")
-@click.option("-n", "--n_mols", default=0, help="Number of molecules to randomly sub-sample. Default: 0 = all")
-@click.option("-j", "--n_jobs", default=4, help="Number of cores to use for data loader.")
+@click.option(
+    "-b", "--batch_size", default=256, help="Batch size to use for embedding."
+)
+@click.option(
+    "-n",
+    "--n_mols",
+    default=0,
+    help="Number of molecules to randomly sub-sample. Default: 0 = all",
+)
+@click.option(
+    "-j", "--n_jobs", default=4, help="Number of cores to use for data loader."
+)
 @click.option("-x", "--prec", default=4, help="Float precision")
-@click.option("-p", "--pca", is_flag=True, help="Whether embeddings should be further reduced by PCA")
-@click.option("-t", "--tsne", is_flag=True, help="Whether embeddings should be further reduced by a t-SNE")
-@click.option("-a", "--pacmap", is_flag=True, help="Whether embeddings should be further reduced by PacMap")
-@click.option("-z", "--n_comp", default=2, help="If PCA/t-SNE/PacMap is used, number of components to reduce to")
-@click.option("-x", "--perplex", default=30, help="Perplexity to be used for t-SNE dim. reduction.")
+@click.option(
+    "-p",
+    "--pca",
+    is_flag=True,
+    help="Whether embeddings should be further reduced by PCA",
+)
+@click.option(
+    "-t",
+    "--tsne",
+    is_flag=True,
+    help="Whether embeddings should be further reduced by a t-SNE",
+)
+@click.option(
+    "-a",
+    "--pacmap",
+    is_flag=True,
+    help="Whether embeddings should be further reduced by PacMap",
+)
+@click.option(
+    "-z",
+    "--n_comp",
+    default=2,
+    help="If PCA/t-SNE/PacMap is used, number of components to reduce to",
+)
+@click.option(
+    "-x",
+    "--perplex",
+    default=30,
+    help="Perplexity to be used for t-SNE dim. reduction.",
+)
 @click.option("-s", "--seed", default=None, help="Random seed for PCA / t-SNE / PacMap")
 def main(
     input_file,
@@ -78,7 +121,9 @@ def main(
         perplex,
         seed,
     )
-    out = np.concatenate((np.asarray(ids).reshape(-1, 1), np.round(embds, int(prec))), axis=1)
+    out = np.concatenate(
+        (np.asarray(ids).reshape(-1, 1), np.round(embds, int(prec))), axis=1
+    )
     np.savetxt(output_file, out, delimiter=",", fmt="%s")
     print(f"Embeddings saved to {output_file}\n")
 
@@ -134,7 +179,9 @@ def embed_file(
     gnn = gnn.to(DEVICE)
 
     # Embed molecules
-    embs = smiles_embedding(gnn=gnn, smiles=smiles, batch_size=batch_size, n_jobs=n_jobs, vae=vae)
+    embs = smiles2embedding(
+        gnn=gnn, smiles=smiles, batch_size=batch_size, n_jobs=n_jobs, vae=vae
+    )
 
     if pca and not pacmap and not tsne:
         # PCA
@@ -153,19 +200,23 @@ def embed_file(
 
     if pacmap:
         print("Running PacMAP embeddings...")
-        embs = PaCMAP(n_components=n_comp, n_neighbors=10, MN_ratio=0.5, FP_ratio=2.0).fit_transform(embs)
+        embs = PaCMAP(
+            n_components=n_comp, n_neighbors=10, MN_ratio=0.5, FP_ratio=2.0
+        ).fit_transform(embs)
 
     # Return embeddings for IDs
     return ids, embs
 
 
 @torch.no_grad
-def smiles_embedding(gnn, smiles, batch_size, n_jobs, vae):
+def smiles2embedding(smiles, gnn, batch_size, n_jobs, vae):
     gnn.eval()
     dataset = AttFPDataset(smiles, embed=True)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=n_jobs)
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, num_workers=n_jobs
+    )
     embs = torch.empty((0, gnn.out_channels), dtype=torch.float32).to(DEVICE)
-    for g in tqdm(loader, desc="Embedding"):
+    for g in loader:
         g = g.to(DEVICE)
         if vae:
             h, _ = gnn(g.atoms, g.edge_index, g.bonds, g.batch)

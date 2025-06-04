@@ -15,7 +15,7 @@ from rdkit.Chem.Descriptors import descList
 from rdkit.rdBase import DisableLog
 from torch_geometric.data import Data, Dataset
 
-from utils import atom_features, bond_features
+from giraffe.utils import atom_features, bond_features
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -36,7 +36,9 @@ class OneMol(Dataset):
         smils = self.smiles
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(self.mol)
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
-        smils_pad[: len(smils) + 2] = [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
+        smils_pad[: len(smils) + 2] = (
+            [self.t2i["^"]] + [self.t2i[c] for c in smils] + [self.t2i["$"]]
+        )
 
         return Data(
             atoms=torch.FloatTensor(atom_feats),
@@ -103,7 +105,9 @@ class AttFPDataset(Dataset):
 
         num_nodes, atom_feats, bond_feats, edge_index = attentive_fp_features(mol)
 
-        if self.embed:  # if used for embedding, no need to calculate properties and random SMILES
+        if (
+            self.embed
+        ):  # if used for embedding, no need to calculate properties and random SMILES
             return Data(
                 atoms=torch.FloatTensor(atom_feats),
                 bonds=torch.FloatTensor(bond_feats),
@@ -124,7 +128,9 @@ class AttFPDataset(Dataset):
             smils = self.data.iloc[idx][[self.smls_col]]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
         smils_pad[: len(smils) + 2] = (
-            [self.t2i["^"]] + [self.t2i[c] if c in self.t2i else self.t2i["*"] for c in smils] + [self.t2i["$"]]
+            [self.t2i["^"]]
+            + [self.t2i[c] if c in self.t2i else self.t2i["*"] for c in smils]
+            + [self.t2i["$"]]
         )
 
         return Data(
@@ -211,7 +217,9 @@ class AttFPTableDataset(Dataset):
             smils = self.data.iloc[idx][self.smls_col]
         smils_pad = np.full(self.max_len + 2, self.t2i[" "], dtype="uint8")
         smils_pad[: len(smils) + 2] = (
-            [self.t2i["^"]] + [self.t2i[c] if c in self.t2i else self.t2i["*"] for c in smils] + [self.t2i["$"]]
+            [self.t2i["^"]]
+            + [self.t2i[c] if c in self.t2i else self.t2i["*"] for c in smils]
+            + [self.t2i["$"]]
         )
 
         return Data(
@@ -240,7 +248,9 @@ def load_from_fname(filename, smls_col, delimiter):
     # Load smiles dataset
     if isinstance(filename, str):
         if filename.endswith(".gz"):
-            data = pd.read_csv(filename, delimiter=delimiter, compression="gzip", engine="python")
+            data = pd.read_csv(
+                filename, delimiter=delimiter, compression="gzip", engine="python"
+            )
         else:
             data = pd.read_csv(filename, delimiter=delimiter, engine="python")
         data.dropna(how="all", axis=1, inplace=True)
@@ -279,7 +289,9 @@ def attentive_fp_features(mol):
 
 
 class PropertyScaler(object):
-    def __init__(self, descriptors: Union[List, str, None] = None, do_scale: bool = True):
+    def __init__(
+        self, descriptors: Union[List, str, None] = None, do_scale: bool = True
+    ):
         if isinstance(descriptors, str):
             self.descriptors = {}
             desc_regex = re.compile(descriptors)
@@ -287,7 +299,11 @@ class PropertyScaler(object):
                 if desc_regex.match(descriptor):
                     self.descriptors[descriptor] = func
         elif isinstance(descriptors, list):
-            self.descriptors = {descriptor: func for descriptor, func in descList if descriptor in descriptors}
+            self.descriptors = {
+                descriptor: func
+                for descriptor, func in descList
+                if descriptor in descriptors
+            }
         else:
             self.descriptors = {descriptor: func for descriptor, func in descList}
 
@@ -318,7 +334,9 @@ class PropertyScaler(object):
 
     def scale(self, x, n):
         try:
-            return (min(x, self.max_val[n]) - min(x, self.min_val[n])) / (self.max_val[n] - self.min_val[n])
+            return (min(x, self.max_val[n]) - min(x, self.min_val[n])) / (
+                self.max_val[n] - self.min_val[n]
+            )
         except KeyError:
             raise KeyError(x, n, self.min_val, self.max_val, self.descriptors)
 

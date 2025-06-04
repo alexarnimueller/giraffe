@@ -14,11 +14,22 @@ from rdkit.rdBase import DisableLog
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 
-from dataset import AttFPDataset, AttFPTableDataset, load_from_fname, tokenizer
-from model import FFNN, LSTM, AttentiveFP, AttentiveFP2, create_annealing_schedule
-from sampling import temperature_sampling
-from train import train_one_epoch, validate_one_epoch
-from utils import click_with_config_file, get_input_dims, mse_with_nans, read_config_ini
+from giraffe.dataset import AttFPDataset, AttFPTableDataset, load_from_fname, tokenizer
+from giraffe.model import (
+    FFNN,
+    LSTM,
+    AttentiveFP,
+    AttentiveFP2,
+    create_annealing_schedule,
+)
+from giraffe.sampling import temperature_sampling
+from giraffe.train import train_one_epoch, validate_one_epoch
+from giraffe.utils import (
+    click_with_config_file,
+    get_input_dims,
+    mse_with_nans,
+    read_config_ini,
+)
 
 for level in RDLogger._levels:
     DisableLog(level)
@@ -29,40 +40,113 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 @click.command(cls=click_with_config_file("config_file"))
 @click.argument("filename")
 @click.option(
-    "-f", "--config_file", type=click.Path(), help="Configuration file. If provided other options are ignored."
+    "-f",
+    "--config_file",
+    type=click.Path(),
+    help="Configuration file. If provided other options are ignored.",
 )
-@click.option("-c", "--checkpoint", default="models/pub_vae_sig", help="Checkpoint folder.")
+@click.option("-c", "--checkpoint", default="models/wae_pub", help="Checkpoint folder.")
 @click.option("-e", "--epoch_load", default=70, help="Epoch of models to load.")
-@click.option("-n", "--run_name", default=None, help="Name of the run for saving (filename if omitted).")
+@click.option(
+    "-n",
+    "--run_name",
+    default=None,
+    help="Name of the run for saving (filename if omitted).",
+)
 @click.option("-d", "--delimiter", default="\t", help="Column delimiter of input file.")
-@click.option("--smls_col", "--sc", default="SMILES", help="Name of column that contains SMILES.")
-@click.option("-p", "--props", default=None, help="Comma-seperated list of descriptors to use. All, if omitted")
+@click.option(
+    "--smls_col", "--sc", default="SMILES", help="Name of column that contains SMILES."
+)
+@click.option(
+    "-p",
+    "--props",
+    default=None,
+    help="Comma-seperated list of descriptors to use. All, if omitted",
+)
 @click.option("--epochs", "--ne", default=60, help="Nr. of epochs to train.")
 @click.option("-o", "--dropout", default=0.1, help="Dropout fraction.")
 @click.option("-b", "--batch_size", default=256, help="Number of molecules per batch.")
-@click.option("-r", "--random", is_flag=True, help="Randomly sample molecules in each training step.")
-@click.option("--epoch_steps", "--es", default=1000, help="If random, number of batches per epoch.")
-@click.option("-v", "--val", default=0.05, help="Fraction of the data to use for validation.")
+@click.option(
+    "-r",
+    "--random",
+    is_flag=True,
+    help="Randomly sample molecules in each training step.",
+)
+@click.option(
+    "--epoch_steps",
+    "--es",
+    default=1000,
+    help="If random, number of batches per epoch.",
+)
+@click.option(
+    "-v", "--val", default=0.05, help="Fraction of the data to use for validation."
+)
 @click.option("-l", "--lr", default=1e-4, help="Learning rate.")
 @click.option("--lr_fact", "-lf", default=0.9, help="Learning rate decay factor.")
 @click.option("--lr_step", "-ls", default=10, help="LR Step decay after nr. of epochs.")
 @click.option("-a", "--after", default=5, help="Epoch steps to save model.")
-@click.option("-t", "--temp", default=0.5, help="Temperature to use during SMILES sampling.")
-@click.option("--n_sample", "--ns", default=100, help="Nr. SMILES to sample after each trainin epoch.")
-@click.option("--weight_prop", "--wp", default=10.0, help="Factor for weighting property loss in VAE loss")
-@click.option("--weight_vae", "--wk", default=0.2, help="Factor for weighting KL divergence loss in VAE loss")
+@click.option(
+    "-t", "--temp", default=0.5, help="Temperature to use during SMILES sampling."
+)
+@click.option(
+    "--n_sample",
+    "--ns",
+    default=100,
+    help="Nr. SMILES to sample after each trainin epoch.",
+)
+@click.option(
+    "--weight_prop",
+    "--wp",
+    default=10.0,
+    help="Factor for weighting property loss in VAE loss",
+)
+@click.option(
+    "--weight_vae",
+    "--wk",
+    default=0.2,
+    help="Factor for weighting KL divergence loss in VAE loss",
+)
 @click.option(
     "--anneal_type",
     "--at",
     default="sigmoid",
     help="Shape of VAE weight annealing: constant, linear, sigmoid, cyc_linear, cyc_sigmoid, cyc_sigmoid_lin",
 )
-@click.option("--anneal_start", "--as", default=0, help="Epoch at which to start VAE loss annealing.")
-@click.option("--anneal_stop", "--ao", default=None, help="Epoch at which to stop VAE loss annealing (stay const.)")
-@click.option("--anneal_cycle", "--ac", default=5, help="Number of epochs for one VAE loss annealing cycle")
-@click.option("--anneal_grow", "--ag", default=5, help="Number of annealing cycles with increasing values")
-@click.option("--anneal_ratio", "--ar", default=0.75, help="Fraction of annealing vs. constant VAE weight")
-@click.option("--scale/--no-scale", default=True, help="Whether to scale all properties from 0 to 1")
+@click.option(
+    "--anneal_start",
+    "--as",
+    default=0,
+    help="Epoch at which to start VAE loss annealing.",
+)
+@click.option(
+    "--anneal_stop",
+    "--ao",
+    default=None,
+    help="Epoch at which to stop VAE loss annealing (stay const.)",
+)
+@click.option(
+    "--anneal_cycle",
+    "--ac",
+    default=5,
+    help="Number of epochs for one VAE loss annealing cycle",
+)
+@click.option(
+    "--anneal_grow",
+    "--ag",
+    default=5,
+    help="Number of annealing cycles with increasing values",
+)
+@click.option(
+    "--anneal_ratio",
+    "--ar",
+    default=0.75,
+    help="Fraction of annealing vs. constant VAE weight",
+)
+@click.option(
+    "--scale/--no-scale",
+    default=True,
+    help="Whether to scale all properties from 0 to 1",
+)
 @click.option("--n_proc", "--np", default=6, help="Number of CPU processes to use")
 def main(
     filename,
@@ -147,7 +231,9 @@ def main(
     config = {k: (v if v is not None else 0) for k, v in config.items()}
 
     content = load_from_fname(filename, smls_col=smls_col, delimiter=delimiter)
-    DatasetClass = AttFPDataset if content.columns.tolist() == [smls_col] else AttFPTableDataset
+    DatasetClass = (
+        AttFPDataset if content.columns.tolist() == [smls_col] else AttFPTableDataset
+    )
     dataset = DatasetClass(
         filename=filename,
         delimiter=delimiter,
@@ -191,27 +277,62 @@ def main(
         layers=conf["layers_rnn"],
         dropout=conf["dropout"],
     )
-    mlp = FFNN(input_dim=conf["dim_rnn"], hidden_dim=conf["dim_mlp"], n_layers=conf["layers_mlp"], output_dim=n_props)
+    mlp = FFNN(
+        input_dim=conf["dim_rnn"],
+        hidden_dim=conf["dim_mlp"],
+        n_layers=conf["layers_mlp"],
+        output_dim=n_props,
+    )
 
-    gnn.load_state_dict(torch.load(os.path.join(checkpoint, f"atfp_{epoch_load}.pt"), map_location=DEVICE))
-    rnn.load_state_dict(torch.load(os.path.join(checkpoint, f"lstm_{epoch_load}.pt"), map_location=DEVICE))
+    gnn.load_state_dict(
+        torch.load(
+            os.path.join(checkpoint, f"atfp_{epoch_load}.pt"), map_location=DEVICE
+        )
+    )
+    rnn.load_state_dict(
+        torch.load(
+            os.path.join(checkpoint, f"lstm_{epoch_load}.pt"), map_location=DEVICE
+        )
+    )
     if conf["n_props"] == n_props:
-        mlp.load_state_dict(torch.load(os.path.join(checkpoint, f"ffnn_{epoch_load}.pt"), map_location=DEVICE))
+        mlp.load_state_dict(
+            torch.load(
+                os.path.join(checkpoint, f"ffnn_{epoch_load}.pt"), map_location=DEVICE
+            )
+        )
     else:
-        print("WARNING: Different number of properties compared to pretrained model. Training MLP from scratch.")
+        print(
+            "WARNING: Different number of properties compared to pretrained model. Training MLP from scratch."
+        )
     gnn = gnn.to(DEVICE)
     rnn = rnn.to(DEVICE)
     mlp = mlp.to(DEVICE)
 
     # Define optimizer and loss criteria
-    opt_params = list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
+    opt_params = (
+        list(rnn.parameters()) + list(gnn.parameters()) + list(mlp.parameters())
+    )
     optimizer = torch.optim.Adam(opt_params, lr=lr)
-    schedule = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_step, gamma=lr_fact)
+    schedule = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=lr_step, gamma=lr_fact
+    )
     criterion1 = nn.CrossEntropyLoss(reduction="mean")
     criterion2 = mse_with_nans
     train_set, val_set = torch.utils.data.random_split(dataset, [1.0 - val, val])
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
-    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=n_proc, drop_last=False)
+    train_loader = DataLoader(
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=n_proc,
+        drop_last=False,
+    )
+    valid_loader = DataLoader(
+        val_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=n_proc,
+        drop_last=False,
+    )
     writer = SummaryWriter(path_loss)
     print(
         f"Using {len(train_set)}{' random' if random else ''} molecules for training "

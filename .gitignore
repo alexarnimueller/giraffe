@@ -1,6 +1,6 @@
 sHPC/
 benchmarks/
-#models/
+models/
 logs/
 output/
 data/*prop*

@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8
 
+import os
 from typing import List, Optional
 
 import numpy as np
@@ -14,9 +15,55 @@ from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.typing import Adj, OptTensor
 from torch_geometric.utils import softmax
 
+from giraffe.utils import get_input_dims, read_config_ini
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def load_models(checkpoint, epoch):
+    """Helper class to load encoder and decoder models and corresponding config object
+    from trained model checkpoint.
+    """
+    dim_atom, dim_bond = get_input_dims()
+    conf = read_config_ini(checkpoint)
+    vae = conf["vae"] == "True"
+
+    # Define models
+    rnn = LSTM(
+        input_dim=conf["alphabet"],
+        embedding_dim=conf["dim_tok"],
+        hidden_dim=conf["dim_rnn"],
+        layers=conf["layers_rnn"],
+        dropout=conf["dropout"],
+    )
+
+    GNN_Class = AttentiveFP2 if vae else AttentiveFP
+    gnn = GNN_Class(
+        in_channels=dim_atom,
+        hidden_channels=conf["dim_gnn"],
+        out_channels=conf["dim_rnn"],
+        edge_dim=dim_bond,
+        num_layers=conf["layers_gnn"],
+        num_timesteps=conf["kernels_gnn"],
+        dropout=conf["dropout"],
+    )
+
+    gnn.load_state_dict(
+        torch.load(os.path.join(checkpoint, f"atfp_{epoch}.pt"), map_location=DEVICE)
+    )
+    rnn.load_state_dict(
+        torch.load(os.path.join(checkpoint, f"lstm_{epoch}.pt"), map_location=DEVICE)
+    )
+    gnn = gnn.to(DEVICE)
+    rnn = rnn.to(DEVICE)
+
+    return gnn, rnn, conf
+
 
 class FFNN(nn.Module):
-    def __init__(self, input_dim=512, output_dim=125, hidden_dim=256, n_layers=3, dropout=0.3):
+    def __init__(
+        self, input_dim=512, output_dim=125, hidden_dim=256, n_layers=3, dropout=0.3
+    ):
         super(FFNN, self).__init__()
         self.n_layers = n_layers
         self.dropout = dropout
@@ -25,7 +72,8 @@ class FFNN(nn.Module):
         self.hidden_dim = hidden_dim
         layers = (
             [nn.Linear(input_dim, hidden_dim), nn.Dropout(dropout), nn.LeakyReLU()]
-            + int(n_layers - 2) * [nn.Linear(hidden_dim, hidden_dim), nn.Dropout(dropout), nn.LeakyReLU()]
+            + int(n_layers - 2)
+            * [nn.Linear(hidden_dim, hidden_dim), nn.Dropout(dropout), nn.LeakyReLU()]
             + [nn.Linear(hidden_dim, output_dim)]
         )
         self.mlp = nn.Sequential(*layers)
@@ -40,7 +88,9 @@ class FFNN(nn.Module):
 
 
 class LSTM(nn.Module):
-    def __init__(self, input_dim=48, embedding_dim=128, hidden_dim=512, layers=2, dropout=0.2):
+    def __init__(
+        self, input_dim=48, embedding_dim=128, hidden_dim=512, layers=2, dropout=0.2
+    ):
         super(LSTM, self).__init__()
 
         self.input_dim = input_dim
@@ -118,7 +168,13 @@ class GATEConv(MessagePassing):
         return out
 
     def edge_update(
-        self, x_j: Tensor, x_i: Tensor, edge_attr: Tensor, index: Tensor, ptr: OptTensor, size_i: Optional[int]
+        self,
+        x_j: Tensor,
+        x_i: Tensor,
+        edge_attr: Tensor,
+        index: Tensor,
+        ptr: OptTensor,
+        size_i: Optional[int],
     ) -> Tensor:
         x_j = F.leaky_relu_(self.lin1(torch.cat([x_j, edge_attr], dim=-1)))
         alpha = (x_j @ self.att_l.t()).squeeze(-1) + (x_i @ self.att_r.t()).squeeze(-1)
@@ -165,13 +221,21 @@ class AttentiveFP(torch.nn.Module):
         self.atom_grus = torch.nn.ModuleList()
         for _ in range(num_layers - 1):
             conv = GATConv(
-                hidden_channels, hidden_channels, dropout=dropout, add_self_loops=False, negative_slope=0.01
+                hidden_channels,
+                hidden_channels,
+                dropout=dropout,
+                add_self_loops=False,
+                negative_slope=0.01,
             )
             self.atom_convs.append(conv)
             self.atom_grus.append(GRUCell(hidden_channels, hidden_channels))
 
         self.mol_conv = GATConv(
-            hidden_channels, hidden_channels, dropout=dropout, add_self_loops=False, negative_slope=0.01
+            hidden_channels,
+            hidden_channels,
+            dropout=dropout,
+            add_self_loops=False,
+            negative_slope=0.01,
         )
         self.mol_conv.explain = False  # Cannot explain global pooling.
         self.mol_gru = GRUCell(hidden_channels, hidden_channels)
@@ -180,13 +244,22 @@ class AttentiveFP(torch.nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        for m in [self.lin1, self.gate_conv, self.gru, self.mol_conv, self.mol_gru, self.lin2]:
+        for m in [
+            self.lin1,
+            self.gate_conv,
+            self.gru,
+            self.mol_conv,
+            self.mol_gru,
+            self.lin2,
+        ]:
             m.reset_parameters()
         for conv, gru in zip(self.atom_convs, self.atom_grus):
             conv.reset_parameters()
             gru.reset_parameters()
 
-    def forward(self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor) -> Tensor:
+    def forward(
+        self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor
+    ) -> Tensor:
         # Atom Embedding
         x = F.leaky_relu_(self.lin1(x))
         h = F.elu_(self.gate_conv(x, edge_index, edge_attr))
@@ -252,13 +325,21 @@ class AttentiveFP2(torch.nn.Module):
         self.atom_grus = torch.nn.ModuleList()
         for _ in range(num_layers - 1):
             conv = GATConv(
-                hidden_channels, hidden_channels, dropout=dropout, add_self_loops=False, negative_slope=0.01
+                hidden_channels,
+                hidden_channels,
+                dropout=dropout,
+                add_self_loops=False,
+                negative_slope=0.01,
             )
             self.atom_convs.append(conv)
             self.atom_grus.append(GRUCell(hidden_channels, hidden_channels))
 
         self.mol_conv = GATConv(
-            hidden_channels, hidden_channels, dropout=dropout, add_self_loops=False, negative_slope=0.01
+            hidden_channels,
+            hidden_channels,
+            dropout=dropout,
+            add_self_loops=False,
+            negative_slope=0.01,
         )
         self.mol_conv.explain = False  # Cannot explain global pooling.
         self.mol_gru = GRUCell(hidden_channels, hidden_channels)
@@ -268,13 +349,23 @@ class AttentiveFP2(torch.nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        for m in [self.lin1, self.gate_conv, self.gru, self.mol_conv, self.mol_gru, self.lin_mu, self.lin_var]:
+        for m in [
+            self.lin1,
+            self.gate_conv,
+            self.gru,
+            self.mol_conv,
+            self.mol_gru,
+            self.lin_mu,
+            self.lin_var,
+        ]:
             m.reset_parameters()
         for conv, gru in zip(self.atom_convs, self.atom_grus):
             conv.reset_parameters()
             gru.reset_parameters()
 
-    def forward(self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor) -> Tensor:
+    def forward(
+        self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor
+    ) -> Tensor:
         # Atom Embedding
         x = F.leaky_relu_(self.lin1(x))
         h = F.elu_(self.gate_conv(x, edge_index, edge_attr))
@@ -312,15 +403,26 @@ def reparameterize(mu: Tensor, logvar: Tensor) -> Tensor:
     return eps * std + mu
 
 
-def vae_loss_func(loss_smls, loss_prop, mu, log_var, w_vae, w_prop, wae, lambd=1.0, sigma=1.0) -> List[Tensor]:
+def vae_loss_func(
+    loss_smls, loss_prop, mu, log_var, w_vae, w_prop, wae, lambd=1.0, sigma=1.0
+) -> List[Tensor]:
     """Computes the VAE KLD or WAE MMD loss. Clamp and replace possible NaNs."""
     if wae:
         loss_vae = torch.nan_to_num(compute_mmd(mu, lambd, sigma), nan=1e4)
     else:
         loss_vae = torch.nan_to_num(
-            torch.mean(-0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0).clamp(max=1e4), nan=1e4
+            torch.mean(
+                -0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0
+            ).clamp(max=1e4),
+            nan=1e4,
         )
-    return torch.add(loss_smls, torch.multiply(loss_vae, w_vae) + torch.multiply(loss_prop, w_prop)), loss_vae
+    return (
+        torch.add(
+            loss_smls,
+            torch.multiply(loss_vae, w_vae) + torch.multiply(loss_prop, w_prop),
+        ),
+        loss_vae,
+    )
 
 
 def compute_kernel(x1, x2, eps=1e-7, sigma=1.0):
@@ -337,12 +439,18 @@ def compute_mmd(z, lamb=1.0, sigma=1.0):
     """Compute the maximum mean discrepancy (MMD) between the input and a Gaussian prior.
     WAE-MMD loss adapted from https://openreview.net/pdf?id=HkL7n1-0b (Algorithm 2)
     """
-    prior_z = torch.randn_like(z) * sigma  # use normal gaussian as prior (with custom sigma if needed)
+    prior_z = (
+        torch.randn_like(z) * sigma
+    )  # use normal gaussian as prior (with custom sigma if needed)
     kern_pz = compute_kernel(prior_z, prior_z, sigma=sigma)
     kern_z = compute_kernel(z, z, sigma=sigma)
     kern_pz_z = compute_kernel(prior_z, z, sigma=sigma)
     pre = lamb / (z.size(0) * (z.size(0) - 1))
-    return pre * kern_pz.mean() + pre * kern_z.mean() - (2 * lamb) / (z.size(0) ** 2) * kern_pz_z.mean()
+    return (
+        pre * kern_pz.mean()
+        + pre * kern_z.mean()
+        - (2 * lamb) / (z.size(0) ** 2) * kern_pz_z.mean()
+    )
 
 
 def anneal_cycle_linear(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
@@ -373,11 +481,15 @@ def anneal_cycle_sigmoid(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, rati
             w[int(i + c * period)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
             v += step
             i += 1
-        w[int(i + c * period) : int((c + 1) * period + 1)] = 1.0 / (1.0 + np.exp(-(v * 8.0 - 4.0)))
+        w[int(i + c * period) : int((c + 1) * period + 1)] = 1.0 / (
+            1.0 + np.exp(-(v * 8.0 - 4.0))
+        )
     return w
 
 
-def anneal_cycle_sigmoid_lin(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, slope=1.5):
+def anneal_cycle_sigmoid_lin(
+    n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, slope=1.5
+):
     w = []
     period = int(n_steps / n_cycle)
     for c in range(n_cycle):
@@ -398,7 +510,14 @@ def anneal_const_sigmoid(n_iter, start=0.0, stop=1.0, slope=1.5):
 
 
 def create_annealing_schedule(
-    epochs, epoch_steps, anneal_start, anneal_stop, anneal_cycle, anneal_grow, anneal_ratio, anneal_type
+    epochs,
+    epoch_steps,
+    anneal_start,
+    anneal_stop,
+    anneal_cycle,
+    anneal_grow,
+    anneal_ratio,
+    anneal_type,
 ):
     anneal_stop = min(int(anneal_stop), int(epochs))
     total_steps = (anneal_stop - anneal_start) * epoch_steps
@@ -409,11 +528,17 @@ def create_annealing_schedule(
     if anneal_cycle and (total_steps / epoch_steps) % anneal_cycle:
         n_cycle += 1
     if anneal_type == "cyc_linear":
-        ann_sched = anneal_cycle_linear(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
+        ann_sched = anneal_cycle_linear(
+            total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio
+        )
     elif anneal_type == "cyc_sigmoid":
-        ann_sched = anneal_cycle_sigmoid(total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio)
+        ann_sched = anneal_cycle_sigmoid(
+            total_steps, n_cycle=n_cycle, n_grow=anneal_grow, ratio=anneal_ratio
+        )
     elif anneal_type == "cyc_sigmoid_lin":
-        ann_sched = anneal_cycle_sigmoid_lin(total_steps, n_cycle=n_cycle, n_grow=anneal_grow)
+        ann_sched = anneal_cycle_sigmoid_lin(
+            total_steps, n_cycle=n_cycle, n_grow=anneal_grow
+        )
     elif anneal_type == "linear":
         ann_sched = anneal_const_linear(total_steps)
     elif anneal_type == "sigmoid":
@@ -424,5 +549,7 @@ def create_annealing_schedule(
         raise NotImplementedError(f"Annealing type {anneal_type} not implemented.")
     anneal = np.concatenate((anneal, ann_sched)).flatten()
     if anneal_stop < epochs:
-        anneal = np.concatenate((anneal, np.ones((epochs - anneal_stop) * epoch_steps))).flatten()
+        anneal = np.concatenate(
+            (anneal, np.ones((epochs - anneal_stop) * epoch_steps))
+        ).flatten()
     return anneal
