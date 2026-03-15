@@ -5,6 +5,7 @@ import os
 import time
 
 import click
+import numpy as np
 import pandas as pd
 import torch
 from rdkit import Chem, RDLogger
@@ -120,9 +121,9 @@ def temperature_sampling(
     i2t, t2i = tokenizer()
 
     if inter:
-        assert (
-            "," in smiles
-        ), "Provide 2 SMILES separated by a comma for linear interpolation"
+        assert "," in smiles, (
+            "Provide 2 SMILES separated by a comma for linear interpolation"
+        )
         t_start, t_end = smiles.split(",")
         dataset = [OneMol(t_start, maxlen), OneMol(t_end, maxlen)]
     else:
@@ -179,11 +180,18 @@ def temperature_sampling(
                     p = "".join(i2t[i] for i in g.trg_smi.detach().cpu().numpy()[0])
                     parents.append(p.replace("^", "").replace("$", "").strip())
         t_end = time.time()
-
+        if smiles is None:
+            smiles = "CC1=CC(=O)C=C(C1(C)C)C"
         if isinstance(smiles, str):
             ik_ref = [Chem.MolToInchiKey(Chem.MolFromSmiles(smiles))]
+        elif isinstance(smiles, list) or isinstance(smiles, np.ndarray):
+            mols_ref = [Chem.MolFromSmiles(s) for s in smiles if s is not None]
+            ik_ref = [Chem.MolToInchiKey(m) for m in mols_ref if m is not None]
         else:
-            ik_ref = [Chem.MolToInchiKey(Chem.MolFromSmiles(s)) for s in smiles]
+            ik_ref = []
+            print(
+                f"WARNING: Could not parse reference SMILES(s) for novelty calculation of type {type(smiles)}"
+            )
         unique, inchiks, probs_abs, novels = [], [], [], 0
         for idx, s in enumerate(smls):
             ik = Chem.MolToInchiKey(Chem.MolFromSmiles(s))

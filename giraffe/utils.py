@@ -5,7 +5,6 @@ import os
 from configparser import ConfigParser
 from multiprocessing import Process, Queue, cpu_count
 
-import click
 import numpy as np
 import torch
 from rdkit import Chem
@@ -373,20 +372,6 @@ def ce_with_nans(y_pred, y_true):
         if mask.sum() > 0
         else 1e-6
     )
-
-
-def click_with_config_file(config_file_param_name):
-    class CustomCommand(click.Command):
-        def invoke(self, ctx):
-            config_file = ctx.params[config_file_param_name]
-            if config_file is not None:
-                config_data = read_config_ini(config_file)
-                for param, value in ctx.params.items():
-                    if value is None and param in config_data:
-                        ctx.params[param] = config_data[param]
-            return super(CustomCommand, self).invoke(ctx)
-
-    return CustomCommand
 
 
 def click_config_file(ctx, param, filename):

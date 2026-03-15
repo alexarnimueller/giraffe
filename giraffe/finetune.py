@@ -25,7 +25,7 @@ from giraffe.model import (
 from giraffe.sampling import temperature_sampling
 from giraffe.train import train_one_epoch, validate_one_epoch
 from giraffe.utils import (
-    click_with_config_file,
+    click_config_file,
     get_input_dims,
     mse_with_nans,
     read_config_ini,
@@ -37,13 +37,16 @@ for level in RDLogger._levels:
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-@click.command(cls=click_with_config_file("config_file"))
+@click.command()
 @click.argument("filename")
 @click.option(
-    "-f",
-    "--config_file",
-    type=click.Path(),
-    help="Configuration file. If provided other options are ignored.",
+    "--config",
+    type=click.Path(dir_okay=False),
+    default=None,
+    callback=click_config_file,
+    is_eager=True,
+    help="Read option defaults from the specified INI config file",
+    show_default=True,
 )
 @click.option("-c", "--checkpoint", default="models/wae_pub", help="Checkpoint folder.")
 @click.option("-e", "--epoch_load", default=70, help="Epoch of models to load.")

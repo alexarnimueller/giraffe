@@ -6,6 +6,7 @@ import os
 import re
 from typing import List, Union
 
+import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 import torch
@@ -88,8 +89,8 @@ class AttFPDataset(Dataset):
         self.min_len = self.data[smls_col].apply(lambda x: len(x)).min()
         if isinstance(filename, str):
             print(f"Loaded {len(self.data)} SMILES")
-            print("Max Length: ", self.max_len)
-            print("Min Length: ", self.min_len)
+            print("  Max Length: ", self.max_len)
+            print("  Min Length: ", self.min_len)
         # if random, set loops
         if random:
             self.loop = list(range(0, steps))
@@ -247,12 +248,7 @@ class AttFPTableDataset(Dataset):
 def load_from_fname(filename, smls_col, delimiter):
     # Load smiles dataset
     if isinstance(filename, str):
-        if filename.endswith(".gz"):
-            data = pd.read_csv(
-                filename, delimiter=delimiter, compression="gzip", engine="python"
-            )
-        else:
-            data = pd.read_csv(filename, delimiter=delimiter, engine="python")
+        data = dd.read_csv(filename, delimiter=delimiter, engine="python").compute()
         data.dropna(how="all", axis=1, inplace=True)
         if smls_col not in data.columns and len(data.columns) == 1:
             data = pd.concat(

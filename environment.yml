@@ -18,3 +18,5 @@ dependencies:
   - seaborn
   - pip:
     - tensorboard
+    - dask
+    - pacmap

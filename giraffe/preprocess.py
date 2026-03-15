@@ -6,6 +6,7 @@ Molecule preprocessing functions
 """
 
 import multiprocessing
+import os
 from functools import partial
 from time import time
 
@@ -132,27 +133,27 @@ def preprocess_smiles_file(
 
     print("Checking SMILES validity...")
     batches = list(batchify(smls, n_proc))
+    del smls
 
     # Process batches in parallel
     with multiprocessing.Pool(processes=n_proc) as pool:
         results = pool.map(
             partial(process_batch_smls, t2i_keys=t2i_keys, max_len=max_len), batches
         )
-    out = [item for sublist in results for item in sublist]
-
-    uniq = list(set(out))
+    uniq = list(set([item for sublist in results for item in sublist]))
     print(f"{len(uniq)} valid unique SMILES strings obtained")
 
     if check_afp:  # check if AttentiveFP features can be computed for the SMILES
         print("Checking AttentiveFP feature validity...")
         batches = list(batchify(uniq, n_proc))
+        del uniq
         # Process batches in parallel
         with multiprocessing.Pool(processes=n_proc) as pool:
             results = pool.map(process_batch_afp, batches)
         uniq = [item for sublist in results for item in sublist]
 
-    out = pd.DataFrame({"SMILES": uniq})
-    return out.sample(frac=1) if rand else out
+    uniq = pd.DataFrame({"SMILES": uniq})
+    return uniq.sample(frac=1) if rand else uniq
 
 
 @click.command()
@@ -193,11 +194,13 @@ def main(filename, smls_col, delimiter, max_len, check_afp, rand, n_proc):
         filename, smls_col, delimiter, max_len, check_afp, rand, n_proc
     )
     stop = time()
-    data.to_csv(
-        f"{filename[:-4]}_proc.txt.gz", sep="\t", index=False, compression="gzip"
+    f_out = os.path.join(
+        os.path.dirname(filename),
+        os.path.basename(filename).split(".")[0] + "_proc.txt.gz",
     )
+    data.to_csv(f_out, sep="\t", index=False, compression="gzip")
     print(
-        f"preprocessing completed in {stop-start:.1f}s! Saved {len(data)} SMILES to {filename[:-4]}_proc.txt.gz"
+        f"preprocessing completed in {stop - start:.1f}s! Saved {len(data)} SMILES to {f_out}"
     )
 
 

@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# -*- coding: utf-8
+# -*- coding: utf-8 -*-
 
 import os
 from typing import List, Optional
@@ -137,7 +137,7 @@ class LSTM(nn.Module):
         features = self.norm_in(features)
         features, hiddens = self.lstm(features, hiddens)
         features = self.norm_out(features)
-        features = self.fcn(features).clamp(min=1e-6, max=1e6)
+        features = self.fcn(features)
         return features, hiddens
 
 
@@ -443,29 +443,37 @@ def vae_loss_func(
 def compute_kernel(x1, x2, eps=1e-7, sigma=1.0):
     """Compute the inverse multiquadratic kernel between inputs."""
     x1, x2 = x1.unsqueeze(-1), x2.unsqueeze(-1)
-    C = 2 * x2.size(-1) * sigma**2
-    kernel = C / (eps + C + (x1 - x2).pow(2).sum(dim=-1))
-
-    # Exclude diagonal elements
-    return kernel.sum() - kernel.diag().sum()
+    C = 2 * x1.size(-1) * sigma**2
+    dist_sq = torch.cdist(x1, x2).pow(2)
+    return C / (eps + C + dist_sq)
 
 
-def compute_mmd(z, lamb=1.0, sigma=1.0):
+def compute_mmd(z, lamb=1.0, sigma=None, n_samples=100):
     """Compute the maximum mean discrepancy (MMD) between the input and a Gaussian prior.
     WAE-MMD loss adapted from https://openreview.net/pdf?id=HkL7n1-0b (Algorithm 2)
     """
-    prior_z = (
-        torch.randn_like(z) * sigma
-    )  # use normal gaussian as prior (with custom sigma if needed)
+    batch_size = z.size(0)
+    if batch_size > n_samples:
+        idx = torch.randperm(batch_size)[:n_samples]
+        z = z[idx]
+        batch_size = n_samples
+
+    if sigma is None:
+        with torch.no_grad():
+            distances = torch.cdist(z, z)
+            sigma = distances.median().clamp(min=1e-6)
+
+    prior_z = torch.randn_like(z) * sigma
     kern_pz = compute_kernel(prior_z, prior_z, sigma=sigma)
     kern_z = compute_kernel(z, z, sigma=sigma)
     kern_pz_z = compute_kernel(prior_z, z, sigma=sigma)
-    pre = lamb / (z.size(0) * (z.size(0) - 1))
-    return (
-        pre * kern_pz.mean()
-        + pre * kern_z.mean()
-        - (2 * lamb) / (z.size(0) ** 2) * kern_pz_z.mean()
+
+    mmd_sq = (
+        kern_pz.diagonal().mean()
+        + kern_z.diagonal().mean()
+        - 2 * kern_pz_z.diagonal().mean()
     )
+    return lamb * torch.sqrt(mmd_sq.clamp(min=1e-6))
 
 
 def anneal_cycle_linear(n_steps, start=0.0, stop=1.0, n_cycle=8, n_grow=3, ratio=0.75):
@@ -568,3 +576,14 @@ def create_annealing_schedule(
             (anneal, np.ones((epochs - anneal_stop) * epoch_steps))
         ).flatten()
     return anneal
+
+
+def log_gradients_to_tensorboard(named_params, writer, step):
+    for name, param in named_params.items():
+        if param.requires_grad and param.grad is not None:
+            # 1. Log the Scaled Norm (Magnitude)
+            grad_norm = param.grad.norm().item()
+            writer.add_scalar(f"Gradients_Norm/{name}", grad_norm, step)
+
+            # 2. Log the Distribution (Histogram)
+            writer.add_histogram(f"Gradients_Dist/{name}", param.grad, step)

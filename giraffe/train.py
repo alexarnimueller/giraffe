@@ -22,6 +22,7 @@ from giraffe.model import (
     AttentiveFP,
     AttentiveFP2,
     create_annealing_schedule,
+    log_gradients_to_tensorboard,
     reparameterize,
     vae_loss_func,
 )
@@ -36,21 +37,15 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DEFAULT_CFG = "./configs/default.ini"
 
 
-@click.command()  # cls=click_with_config_file("config"))
+@click.command()
 @click.option(
     "--config",
     type=click.Path(dir_okay=False),
     default=DEFAULT_CFG,
     callback=click_config_file,
     is_eager=True,
-    expose_value=False,
     help="Read option defaults from the specified INI config file",
     show_default=True,
-)
-@click.option(
-    "--config",
-    type=click.Path(),
-    help="Optional: path to config file to set parameter values.",
 )
 @click.option(
     "-f",
@@ -164,6 +159,10 @@ DEFAULT_CFG = "./configs/default.ini"
     help="Whether to scale all properties from 0 to 1",
 )
 @click.option("--n_proc", "--np", type=int, help="Number of CPU processes to use")
+@click.option(
+    "--verbose/--no-verbose",
+    help="Whether to print extra output during training progress.",
+)
 def main(
     config,
     filename,
@@ -205,6 +204,7 @@ def main(
     sigma,
     scaled_props,
     n_proc,
+    verbose,
 ):
     if run_name is None:  # take filename as run name if not specified
         run_name = os.path.basename(filename).split(".")[0]
@@ -213,7 +213,7 @@ def main(
     dim_atom, dim_bond = get_input_dims()
 
     # Write parameters to config file and define variables
-    weight_vae = weight_vae if (vae or wae) else 0.0
+    weight_ann = weight_vae if (vae or wae) else 0.0
     anneal_cycle = anneal_cycle if (vae or wae) else 0
     anneal_grow = anneal_grow if (vae or wae) else 0.0
     anneal_ratio = anneal_ratio if (vae or wae) else 0
@@ -243,7 +243,7 @@ def main(
         "dim_rnn": dim_rnn,
         "dim_mlp": dim_mlp,
         "weight_prop": weight_prop,
-        "weight_vae": weight_vae,
+        "weight_vae": weight_ann,
         "anneal_type": anneal_type,
         "anneal_start": anneal_start,
         "anneal_stop": anneal_stop,
@@ -264,7 +264,7 @@ def main(
     path_loss = f"logs/{run_name}/"
     os.makedirs(path_model, exist_ok=True)
     os.makedirs(path_loss, exist_ok=True)
-    print("\nPaths (model, loss): ", path_model, path_loss)
+    print(f"\nPaths:\n  Model: {path_model}\n  Log: {path_loss}")
 
     # load data to determine if there are properties
     print(f"\nReading SMILES dataset {filename} ...")
@@ -279,7 +279,7 @@ def main(
         props=props,
         random=random,
         scaled_props=scaled_props,
-        steps=int(epoch_steps * batch_size * (1 + frac_val)),
+        steps=int((epoch_steps * batch_size) / (1.0 - frac_val)),
     )
     config["n_props"] = n_props = dataset.n_props
     train_set, val_set = torch.utils.data.random_split(
@@ -291,7 +291,7 @@ def main(
         shuffle=True,
         num_workers=n_proc,
         drop_last=False,
-        pin_memory=True,
+        pin_memory=False,
     )
     valid_loader = DataLoader(
         val_set,
@@ -299,7 +299,7 @@ def main(
         shuffle=True,
         num_workers=n_proc,
         drop_last=False,
-        pin_memory=True,
+        pin_memory=False,
     )
 
     # store config file for later sampling, retraining etc.
@@ -356,7 +356,8 @@ def main(
         f"Using {len(train_set)}{' random' if random else ''} molecules for training "
         + f"and {len(val_set)}{' random' if random else ''} for validation per epoch."
     )
-    print("\nConfiguration:\n", config)
+    if verbose:
+        print("\nConfiguration:\n", config)
 
     # VAE loss weight annealing
     anneal_stop = epochs if anneal_stop is None else anneal_stop
@@ -374,41 +375,42 @@ def main(
     for epoch in range(1, epochs + 1):
         print(f"\n---------- Epoch {epoch} ----------")
         time_start = time.time()
-        l_s, l_p, l_k, fv = train_one_epoch(
-            gnn,
-            rnn,
-            mlp,
-            optimizer,
-            criterion1,
-            criterion2,
-            train_loader,
-            writer,
-            epoch,
-            t2i,
-            weight_prop,
-            weight_vae,
-            anneal,
-            vae,
-            wae,
-            lambd,
-            sigma,
+        l_s, l_p, l_k, fann = train_one_epoch(
+            gnn=gnn,
+            rnn=rnn,
+            mlp=mlp,
+            optimizer=optimizer,
+            criterion1=criterion1,
+            criterion2=criterion2,
+            train_loader=train_loader,
+            writer=writer,
+            epoch=epoch,
+            t2i=t2i,
+            wp=weight_prop,
+            wk=weight_ann,
+            asteps=anneal,
+            vae=vae,
+            wae=wae,
+            lambd=lambd,
+            sigma=sigma,
+            verbose=verbose,
         )
         l_vs, l_vp, l_vk = validate_one_epoch(
-            gnn,
-            rnn,
-            mlp,
-            criterion1,
-            criterion2,
-            valid_loader,
-            writer,
-            epoch * len(train_loader),
-            t2i,
-            weight_prop,
-            weight_vae * fv,
-            vae,
-            wae,
-            lambd,
-            sigma,
+            gnn=gnn,
+            rnn=rnn,
+            mlp=mlp,
+            criterion1=criterion1,
+            criterion2=criterion2,
+            valid_loader=valid_loader,
+            writer=writer,
+            step=epoch * len(train_loader),
+            t2i=t2i,
+            wp=weight_prop,
+            wk=weight_ann * fann,
+            vae=vae,
+            wae=wae,
+            lambd=lambd,
+            sigma=sigma,
         )
         dur = time.time() - time_start
         schedule.step()
@@ -417,13 +419,13 @@ def main(
 
         # sampling
         valids, _, _, _, _, _ = temperature_sampling(
-            gnn,
-            rnn,
-            temp,
-            np.random.choice(val_set.dataset.data[smls_col], n_sample),
-            n_sample,
-            dataset.max_len,
-            verbose=True,
+            gnn=gnn,
+            rnn=rnn,
+            temp=temp,
+            smiles=np.random.choice(val_set.dataset.data[smls_col], n_sample),
+            num_mols=n_sample,
+            maxlen=dataset.max_len,
+            verbose=verbose,
             vae=vae,
             wae=wae,
         )
@@ -433,7 +435,7 @@ def main(
         print(
             f"Epoch: {epoch}, Train Loss SMILES: {l_s:.3f}, Train Loss Props.: {l_p:.3f}, Train Loss VAE.: {l_k:.3f}, "
             + f"Val. Loss SMILES: {l_vs:.3f}, Val. Loss Props.: {l_vp:.3f}, Val. Loss VAE.: {l_vk:.3f}, "
-            + f"Weight VAE: {fv * weight_vae:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
+            + f"Weight VAE: {fann * weight_ann:.6f}, Frac. valid: {valid:.3f}, LR: {last_lr:.6f}, "
             + f"Time: {dur // 60:.0f}min {dur % 60:.0f}sec"
         )
 
@@ -462,6 +464,7 @@ def train_one_epoch(
     wae,
     lambd,
     sigma,
+    verbose=False,
 ):
     gnn.train(True)
     rnn.train(True)
@@ -483,39 +486,19 @@ def train_one_epoch(
         else:
             hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
 
-        hn_gnn = hn
-
-        # hn = torch.cat(
-        #     [hn.unsqueeze(0)]
-        #     + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)]
-        #     * (rnn.n_layers - 1),
-        #     dim=0,
-        # )
-
-        # # start with initial embedding from graph and zeros as cell state
-        # cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
-
-        # # now get learn tokens using Teacher Forcing
-        # loss_mol = torch.zeros(1).to(DEVICE)
+        # full RNN pass
         finish = (trg == t2i["$"]).nonzero()[-1, 0]
-        # for j in range(
-        #     finish - 1
-        # ):  # only loop until last end-token to prevent nan loss
-        #     nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
-        #     loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
-        #     loss_mol = torch.add(loss_mol, loss_fwd)
-
-        # new single RNN pass
+        # repeat initial embedding for all layers of RNN
         hn_full = torch.zeros((rnn.n_layers, trg.size(1), rnn.hidden_dim)).to(DEVICE)
-        hn_full[0] = hn  # Set the first layer to your initial embedding
+        hn_full[0] = hn  # Set each layer to the initial embedding
         cn_full = torch.zeros((rnn.n_layers, trg.size(1), rnn.hidden_dim)).to(DEVICE)
         inputs = trg[:finish, :]  # Shape: (seq_len, batch)
         targets = trg[1 : finish + 1, :]  # Shape: (seq_len, batch)
-        nxt, (hn, cn) = rnn(inputs, (hn_full, cn_full))
+        nxt, (_, _) = rnn(inputs, (hn_full, cn_full))
         loss_mol = criterion1(nxt.view(-1, nxt.size(-1)), targets.reshape(-1))
 
         # Properties loss (mask unavailable properties)
-        pred_props = mlp(hn_gnn)
+        pred_props = mlp(hn)
         pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
         props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(
             -1, pred_props.size(1)
@@ -526,7 +509,7 @@ def train_one_epoch(
             # combine losses in VAE style
             if wae:
                 mu, var = (
-                    hn_gnn,
+                    hn,
                     None,
                 )  # no reparameterization, output is "mean", no var needed for loss
             f_vae = asteps[(epoch - 1) * steps + step]  # annealing)
@@ -540,6 +523,15 @@ def train_one_epoch(
 
         # backpropagation and gradient clipping
         loss.backward()
+        if (
+            step == len(train_loader) - 1
+        ):  # log gradients of last batch of epoch for debugging
+            named_params = dict(gnn.named_parameters())
+            named_params.update(dict(rnn.named_parameters()))
+            named_params.update(dict(mlp.named_parameters()))
+            log_gradients_to_tensorboard(
+                named_params, writer, (epoch - 1) * steps + step
+            )
         torch.nn.utils.clip_grad_norm_(
             list(gnn.parameters()) + list(rnn.parameters()) + list(mlp.parameters()),
             1.0,
@@ -568,7 +560,7 @@ def train_one_epoch(
                     "loss_train_vae", total_vae / step, (epoch - 1) * steps + step
                 )
                 writer.add_scalar("vae_weight", wk * f_vae, (epoch - 1) * steps + step)
-        if step % 250 == 0:
+        if verbose and step % 250 == 0:
             print(
                 f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, "
                 + f"Loss Props.: {total_props / step:.3f}"
@@ -614,28 +606,24 @@ def validate_one_epoch(
             else:
                 hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
 
-            hn_gnn = hn
-            hn = torch.cat(
-                [hn.unsqueeze(0)]
-                + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)]
-                * (rnn.n_layers - 1),
-                dim=0,
-            )
-            cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
-
-            # SMILES
-            mol_loss = torch.zeros(1).to(DEVICE)
+            # full RNN pass
             finish = (trg == t2i["$"]).nonzero()[-1, 0]
-            for j in range(
-                finish - 1
-            ):  # only loop until last end-token to prevent nan loss
-                nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
-                loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
-                mol_loss = torch.add(mol_loss, loss_fwd)
+            # repeat initial embedding for all layers of RNN
+            hn_full = torch.zeros((rnn.n_layers, trg.size(1), rnn.hidden_dim)).to(
+                DEVICE
+            )
+            hn_full[0] = hn  # Set the first layer to the initial embedding
+            cn_full = torch.zeros((rnn.n_layers, trg.size(1), rnn.hidden_dim)).to(
+                DEVICE
+            )
+            inputs = trg[:finish, :]  # Shape: (seq_len, batch)
+            targets = trg[1 : finish + 1, :]  # Shape: (seq_len, batch)
+            nxt, (_, _) = rnn(inputs, (hn_full, cn_full))
+            loss_mol = criterion1(nxt.view(-1, nxt.size(-1)), targets.reshape(-1))
 
             # loss
             # properties
-            pred_props = mlp(hn_gnn)
+            pred_props = mlp(hn)
             pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
             props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(
                 -1, pred_props.size(1)
@@ -644,20 +632,20 @@ def validate_one_epoch(
             if vae or wae:  # vae
                 if wae:
                     mu, var = (
-                        hn_gnn,
+                        hn,
                         None,
                     )  # no reparameterization, output is "mean", no var needed for loss
                 loss, loss_vae = vae_loss_func(
-                    mol_loss / j, loss_props, mu, var, wk, wp, wae, lambd, sigma
+                    loss_mol, loss_props, mu, var, wk, wp, wae, lambd, sigma
                 )
                 total_vae += loss_vae.cpu().detach().numpy()
             else:  # just weighted
-                loss = mol_loss + torch.multiply(loss_props, wp)
+                loss = loss_mol + torch.multiply(loss_props, wp)
 
             # calculate total losses
             total_total += loss.cpu().detach().numpy()
             total_props += loss_props.cpu().detach().numpy()
-            total_smls += mol_loss.cpu().detach().numpy()[0] / j
+            total_smls += loss_mol.cpu().detach().numpy()
 
     # write tensorboard summary for this epoch and return validation loss
     writer.add_scalar("loss_val_total", total_total / steps, step)

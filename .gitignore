@@ -4,6 +4,7 @@ giraffe/models/*
 giraffe/logs/*
 giraffe/output/*
 giraffe/data/*prop*
+giraffe/data/[PubChem|pubchem|pc]*.smi
 giraffe/examples/figures/*
 
 backup.txt
