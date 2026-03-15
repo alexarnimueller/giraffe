@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
-""""
+""" "
 Script to benchmark GIRAFFE embeddings on tasks from Polaris.
 """
 
@@ -13,12 +13,11 @@ import numpy as np
 import pandas as pd
 import polaris as po
 import torch
+from featurizer import GiraffeFeaturizer
+from model import FFNN
 from sklearn.model_selection import train_test_split
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
-
-from featurizer import GiraffeFeaturizer
-from model import FFNN
 from utils import ce_with_nans, mse_with_nans
 
 logger = logging.getLogger(__name__)
@@ -110,7 +109,9 @@ class EarlyStopping(object):
             self.counter = 0
         else:
             self.counter += 1
-            logger.debug(f"EarlyStopping counter: {self.counter} out of {self.patience}")
+            logger.debug(
+                f"EarlyStopping counter: {self.counter} out of {self.patience}"
+            )
             if self.counter >= self.patience:
                 self.early_stop = True
         return self.early_stop
@@ -141,7 +142,7 @@ def train_one_epoch(model, train_loader, optimizer, classification=False):
     for batch in train_loader:
         feats, labs = batch
         feats, labs = feats.to(DEVICE), labs.to(DEVICE)
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         output = model(feats)
         loss = criterion(output, labs)
         loss.backward()
@@ -166,7 +167,17 @@ def eval_one_epoch(model, valid_loader, classification=False):
     return total_loss / len(valid_loader)
 
 
-def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs):
+def cv(
+    pol_username,
+    dataset,
+    giraffe_model_ckpt,
+    max_epochs,
+    patience,
+    lr,
+    batch_size,
+    run_name,
+    n_jobs,
+):
     if run_name is None:
         run_name = giraffe_model_ckpt.split("/")[1]
 
@@ -179,7 +190,9 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
 
     y_all = y.values
     classification = True if len(set(y_all.flatten())) < 5 else False
-    X_train, X_val, y_train, y_val = train_test_split(X, y_all, test_size=0.1, random_state=4070)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y_all, test_size=0.1, random_state=4070
+    )
     if y.shape[1] == 1:
         y_train, y_val, y_all = y_train.flatten(), y_val.flatten(), y.values.flatten()
 
@@ -187,10 +200,30 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
     train_set = BenchmarkDataset(X_train, y_train)
     val_set = BenchmarkDataset(X_val, y_val)
     test_set = BenchmarkDataset(X_test, testing=True)
-    full_loader = DataLoader(full_set, batch_size=batch_size, shuffle=False, num_workers=n_jobs, drop_last=False)
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=False, num_workers=n_jobs, drop_last=False)
-    valid_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=n_jobs, drop_last=False)
-    test_loader = DataLoader(test_set, batch_size=1, shuffle=False, num_workers=n_jobs, drop_last=False)
+    full_loader = DataLoader(
+        full_set,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=n_jobs,
+        drop_last=False,
+    )
+    train_loader = DataLoader(
+        train_set,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=n_jobs,
+        drop_last=False,
+    )
+    valid_loader = DataLoader(
+        val_set,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=n_jobs,
+        drop_last=False,
+    )
+    test_loader = DataLoader(
+        test_set, batch_size=1, shuffle=False, num_workers=n_jobs, drop_last=False
+    )
 
     # create new models and optimizers
     model = FFNN(
@@ -210,7 +243,9 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
         val_loss = eval_one_epoch(model, valid_loader, classification)
         train_losses.append(loss)
         eval_losses.append(val_loss)
-        logging.info(f"Loss at epoch {e + 1:03d}: Train: {loss:.4f}, Val: {val_loss:.4f}")
+        logging.info(
+            f"Loss at epoch {e + 1:03d}: Train: {loss:.4f}, Val: {val_loss:.4f}"
+        )
 
         early_stop = stopper.step(val_loss, model)
         if early_stop:
@@ -250,12 +285,15 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
         if len(y.columns) == 1:
             results = benchmark.evaluate(predictions.flatten())
         else:
-            results = benchmark.evaluate({k: v.values.flatten() for k, v in probs.items()})
+            results = benchmark.evaluate(
+                {k: v.values.flatten() for k, v in probs.items()}
+            )
     except ValueError:
         cls = probs.map(lambda x: 0 if x < 0.5 else 1)
         probs = probs.map(lambda x: 0.0 if x < 0 else 1.0 if x > 1 else x)
         results = benchmark.evaluate(
-            {k: v.values.flatten() for k, v in cls.items()}, {k: v.values.flatten() for k, v in probs.items()}
+            {k: v.values.flatten() for k, v in cls.items()},
+            {k: v.values.flatten() for k, v in probs.items()},
         )
 
     results.name = dataset.split("/")[-1] + "-GIRAFFE-" + run_name
@@ -267,27 +305,65 @@ def cv(pol_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batc
 
 @click.command()
 @click.argument("polaris_username")
-@click.option("-d", "--dataset", default=None, help="Dataset to use. None: all predfined ones.")
+@click.option(
+    "-d", "--dataset", default=None, help="Dataset to use. None: all predfined ones."
+)
 @click.option(
     "-m",
     "--giraffe_model_ckpt",
     default="models/big_siglin_wae2/atfp_85.pt",
     help="Checkpoint of the trained Giraffe model.",
 )
-@click.option("-n", "--run_name", default=None, help="Name of the run. Default: model name")
-@click.option("-e", "--max_epochs", default=500, help="Maximum number of epochs to train.")
+@click.option(
+    "-n", "--run_name", default=None, help="Name of the run. Default: model name"
+)
+@click.option(
+    "-e", "--max_epochs", default=500, help="Maximum number of epochs to train."
+)
 @click.option("-p", "--patience", default=10, help="Early stopping patience (epochs).")
 @click.option("-l", "--lr", default=1e-3, help="Learning rate for the optimizer.")
 @click.option("-b", "--batch_size", default=128, help="Batch size for model training.")
-@click.option("-j", "--n_jobs", default=8, help="Number of cores to use for data loader.")
-def main(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs):
+@click.option(
+    "-j", "--n_jobs", default=8, help="Number of cores to use for data loader."
+)
+def main(
+    polaris_username,
+    dataset,
+    giraffe_model_ckpt,
+    max_epochs,
+    patience,
+    lr,
+    batch_size,
+    run_name,
+    n_jobs,
+):
     if dataset is not None:
         print(f"Running benchmark for {dataset}")
-        cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs)
+        cv(
+            polaris_username,
+            dataset,
+            giraffe_model_ckpt,
+            max_epochs,
+            patience,
+            lr,
+            batch_size,
+            run_name,
+            n_jobs,
+        )
     else:
         for dataset in BENCHMARKS:
             print(f"Running benchmark for {dataset}")
-            cv(polaris_username, dataset, giraffe_model_ckpt, max_epochs, patience, lr, batch_size, run_name, n_jobs)
+            cv(
+                polaris_username,
+                dataset,
+                giraffe_model_ckpt,
+                max_epochs,
+                patience,
+                lr,
+                batch_size,
+                run_name,
+                n_jobs,
+            )
 
 
 if __name__ == "__main__":

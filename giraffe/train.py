@@ -31,6 +31,7 @@ from giraffe.utils import click_config_file, get_input_dims
 for level in RDLogger._levels:
     DisableLog(level)
 
+torch.autograd.set_detect_anomaly(False)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DEFAULT_CFG = "./configs/default.ini"
 
@@ -225,7 +226,7 @@ def main(
         "dropout": dropout,
         "batch_size": batch_size,
         "random": random,
-        "porps": props,
+        "props": props,
         "n_proc": n_proc,
         "epoch_steps": epoch_steps,
         "frac_val": frac_val,
@@ -290,6 +291,7 @@ def main(
         shuffle=True,
         num_workers=n_proc,
         drop_last=False,
+        pin_memory=True,
     )
     valid_loader = DataLoader(
         val_set,
@@ -297,6 +299,7 @@ def main(
         shuffle=True,
         num_workers=n_proc,
         drop_last=False,
+        pin_memory=True,
     )
 
     # store config file for later sampling, retraining etc.
@@ -466,10 +469,10 @@ def train_one_epoch(
     steps = len(train_loader)
     total_loss, total_smls, total_props, total_vae, f_vae, step = 0, 0, 0, 0, 0, 0
     for g in tqdm(train_loader, desc="Training"):
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
 
         # graph and target smiles
-        g = g.to(DEVICE)
+        g = g.to(DEVICE, non_blocking=True)
         trg = g.trg_smi
         trg = torch.transpose(trg, 0, 1)
 
@@ -479,62 +482,78 @@ def train_one_epoch(
             hn = reparameterize(mu, var)
         else:
             hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
-        hn = torch.cat(
-            [hn.unsqueeze(0)]
-            + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)]
-            * (rnn.n_layers - 1),
-            dim=0,
-        )
 
-        # start with initial embedding from graph and zeros as cell state
-        cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
+        hn_gnn = hn
 
-        # now get learn tokens using Teacher Forcing
-        loss_mol = torch.zeros(1).to(DEVICE)
+        # hn = torch.cat(
+        #     [hn.unsqueeze(0)]
+        #     + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)]
+        #     * (rnn.n_layers - 1),
+        #     dim=0,
+        # )
+
+        # # start with initial embedding from graph and zeros as cell state
+        # cn = torch.zeros((rnn.n_layers, hn.size(1), rnn.hidden_dim)).to(DEVICE)
+
+        # # now get learn tokens using Teacher Forcing
+        # loss_mol = torch.zeros(1).to(DEVICE)
         finish = (trg == t2i["$"]).nonzero()[-1, 0]
-        for j in range(
-            finish - 1
-        ):  # only loop until last end-token to prevent nan loss
-            nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
-            loss_fwd = torch.nan_to_num(
-                criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :]), nan=1e-6
-            )
-            loss_mol = torch.add(loss_mol, loss_fwd)
+        # for j in range(
+        #     finish - 1
+        # ):  # only loop until last end-token to prevent nan loss
+        #     nxt, (hn, cn) = rnn(trg[j, :].unsqueeze(0), (hn, cn))
+        #     loss_fwd = criterion1(nxt.view(trg.size(1), -1), trg[j + 1, :])
+        #     loss_mol = torch.add(loss_mol, loss_fwd)
+
+        # new single RNN pass
+        hn_full = torch.zeros((rnn.n_layers, trg.size(1), rnn.hidden_dim)).to(DEVICE)
+        hn_full[0] = hn  # Set the first layer to your initial embedding
+        cn_full = torch.zeros((rnn.n_layers, trg.size(1), rnn.hidden_dim)).to(DEVICE)
+        inputs = trg[:finish, :]  # Shape: (seq_len, batch)
+        targets = trg[1 : finish + 1, :]  # Shape: (seq_len, batch)
+        nxt, (hn, cn) = rnn(inputs, (hn_full, cn_full))
+        loss_mol = criterion1(nxt.view(-1, nxt.size(-1)), targets.reshape(-1))
 
         # Properties loss (mask unavailable properties)
-        pred_props = mlp(hn[0])
+        pred_props = mlp(hn_gnn)
         pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
         props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(
             -1, pred_props.size(1)
         )
-        loss_props = torch.nan_to_num(criterion2(pred_props, props), nan=1e-6)
+        loss_props = criterion2(pred_props, props)
 
         if vae or wae:
             # combine losses in VAE style
             if wae:
                 mu, var = (
-                    hn[0],
+                    hn_gnn,
                     None,
                 )  # no reparameterization, output is "mean", no var needed for loss
             f_vae = asteps[(epoch - 1) * steps + step]  # annealing)
             loss, loss_vae = vae_loss_func(
-                loss_mol / j, loss_props, mu, var, wk * f_vae, wp, wae, lambd, sigma
+                loss_mol, loss_props, mu, var, wk * f_vae, wp, wae, lambd, sigma
             )
             total_vae += loss_vae.cpu().detach().numpy()
         else:
             # combine losses, apply desired weight to property loss
             loss = loss_mol + torch.multiply(loss_props, wp)
-        loss.backward(retain_graph=True)
+
+        # backpropagation and gradient clipping
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(
+            list(gnn.parameters()) + list(rnn.parameters()) + list(mlp.parameters()),
+            1.0,
+        )
         optimizer.step()
 
         # calculate total losses
         total_loss += loss.cpu().detach().numpy()
-        total_smls += loss_mol.cpu().detach().numpy()[0] / j
+        total_smls += loss_mol.cpu().detach().numpy()
         total_props += loss_props.cpu().detach().numpy()
 
         # write tensorboard summary
         step += 1
-        if step % 10 == 0:
+        if step % 25 == 0:
             writer.add_scalar(
                 "loss_train_total", total_loss / step, (epoch - 1) * steps + step
             )
@@ -549,9 +568,10 @@ def train_one_epoch(
                     "loss_train_vae", total_vae / step, (epoch - 1) * steps + step
                 )
                 writer.add_scalar("vae_weight", wk * f_vae, (epoch - 1) * steps + step)
-        if step % 500 == 0:
+        if step % 250 == 0:
             print(
-                f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, Loss Props.: {total_props / step:.3f}"
+                f"Step: {step}/{steps}, Loss SMILES: {total_smls / step:.3f}, "
+                + f"Loss Props.: {total_props / step:.3f}"
             )
 
     return (total_smls / steps, total_props / steps, total_vae / steps, f_vae)
@@ -593,6 +613,8 @@ def validate_one_epoch(
                 hn = reparameterize(mu, var)
             else:
                 hn = gnn(g.atoms, g.edge_index, g.bonds, g.batch)
+
+            hn_gnn = hn
             hn = torch.cat(
                 [hn.unsqueeze(0)]
                 + [torch.zeros((1, hn.size(0), hn.size(1))).to(DEVICE)]
@@ -613,7 +635,7 @@ def validate_one_epoch(
 
             # loss
             # properties
-            pred_props = mlp(hn[0])
+            pred_props = mlp(hn_gnn)
             pred_props = pred_props * g.prop_mask.reshape(-1, pred_props.size(1))
             props = g.props.reshape(-1, pred_props.size(1)) * g.prop_mask.reshape(
                 -1, pred_props.size(1)
@@ -622,7 +644,7 @@ def validate_one_epoch(
             if vae or wae:  # vae
                 if wae:
                     mu, var = (
-                        hn[0],
+                        hn_gnn,
                         None,
                     )  # no reparameterization, output is "mean", no var needed for loss
                 loss, loss_vae = vae_loss_func(

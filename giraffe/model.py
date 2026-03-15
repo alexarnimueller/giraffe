@@ -62,7 +62,7 @@ def load_models(checkpoint, epoch):
 
 class FFNN(nn.Module):
     def __init__(
-        self, input_dim=512, output_dim=125, hidden_dim=256, n_layers=3, dropout=0.3
+        self, input_dim=512, output_dim=125, hidden_dim=256, n_layers=3, dropout=0.2
     ):
         super(FFNN, self).__init__()
         self.n_layers = n_layers
@@ -70,6 +70,7 @@ class FFNN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
+        self.layer_norm = nn.LayerNorm(input_dim)
         layers = (
             [nn.Linear(input_dim, hidden_dim), nn.Dropout(dropout), nn.LeakyReLU()]
             + int(n_layers - 2)
@@ -84,7 +85,9 @@ class FFNN(nn.Module):
             glorot(self.mlp[i].weight)
 
     def forward(self, x):
-        return self.mlp(x)
+        x_norm = self.layer_norm(x)
+        out = self.mlp(x_norm)
+        return out + x[..., : self.output_dim]  # residual (sliced) connection
 
 
 class LSTM(nn.Module):
@@ -214,11 +217,14 @@ class AttentiveFP(torch.nn.Module):
         self.dropout = dropout
 
         self.lin1 = Linear(in_channels, hidden_channels)
+        self.norm_init = nn.LayerNorm(hidden_channels)
         self.gate_conv = GATEConv(hidden_channels, hidden_channels, edge_dim, dropout)
         self.gru = GRUCell(hidden_channels, hidden_channels)
 
         self.atom_convs = torch.nn.ModuleList()
         self.atom_grus = torch.nn.ModuleList()
+        self.atom_norms = torch.nn.ModuleList()
+
         for _ in range(num_layers - 1):
             conv = GATConv(
                 hidden_channels,
@@ -229,6 +235,7 @@ class AttentiveFP(torch.nn.Module):
             )
             self.atom_convs.append(conv)
             self.atom_grus.append(GRUCell(hidden_channels, hidden_channels))
+            self.atom_norms.append(nn.LayerNorm(hidden_channels))
 
         self.mol_conv = GATConv(
             hidden_channels,
@@ -239,6 +246,7 @@ class AttentiveFP(torch.nn.Module):
         )
         self.mol_conv.explain = False  # Cannot explain global pooling.
         self.mol_gru = GRUCell(hidden_channels, hidden_channels)
+        self.mol_norm = nn.LayerNorm(hidden_channels)
 
         self.lin2 = Linear(hidden_channels, out_channels)
         self.reset_parameters()
@@ -251,24 +259,29 @@ class AttentiveFP(torch.nn.Module):
             self.mol_conv,
             self.mol_gru,
             self.lin2,
+            self.norm_init,
+            self.mol_norm,
         ]:
             m.reset_parameters()
-        for conv, gru in zip(self.atom_convs, self.atom_grus):
+        for conv, gru, ln in zip(self.atom_convs, self.atom_grus, self.atom_norms):
             conv.reset_parameters()
             gru.reset_parameters()
+            ln.reset_parameters()
 
     def forward(
         self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor
     ) -> Tensor:
         # Atom Embedding
         x = F.leaky_relu_(self.lin1(x))
+        x = self.norm_init(x)
         h = F.elu_(self.gate_conv(x, edge_index, edge_attr))
         h = F.dropout(h, p=self.dropout, training=self.training)
         x = self.gru(h, x).relu_()
 
         # loop through layers
-        for conv, gru in zip(self.atom_convs, self.atom_grus):
+        for conv, gru, norm in zip(self.atom_convs, self.atom_grus, self.atom_norms):
             h = conv(x, edge_index)
+            h = norm(h)
             h = F.elu(h)
             h = F.dropout(h, p=self.dropout, training=self.training)
             x = gru(h, x).relu()
@@ -280,7 +293,9 @@ class AttentiveFP(torch.nn.Module):
 
         # loop through time steps
         for _ in range(self.num_timesteps):
-            h = F.elu_(self.mol_conv((x, out), edge_index))
+            h = self.mol_conv((x, out), edge_index)
+            h = self.mol_norm(h)
+            h = F.elu_(h)
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
