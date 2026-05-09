@@ -87,7 +87,12 @@ class FFNN(nn.Module):
     def forward(self, x):
         x_norm = self.layer_norm(x)
         out = self.mlp(x_norm)
-        return out + x[..., : self.output_dim]  # residual (sliced) connection
+        # Safe residual: pad if input too short, else slice
+        if x.size(-1) >= self.output_dim:
+            residual = x[..., : self.output_dim]
+        else:
+            residual = F.pad(x, (0, self.output_dim - x.size(-1)))
+        return out + residual
 
 
 class LSTM(nn.Module):
@@ -229,6 +234,8 @@ class AttentiveFP(torch.nn.Module):
             conv = GATConv(
                 hidden_channels,
                 hidden_channels,
+                heads=4,
+                concat=False,
                 dropout=dropout,
                 add_self_loops=False,
                 negative_slope=0.01,
@@ -240,6 +247,8 @@ class AttentiveFP(torch.nn.Module):
         self.mol_conv = GATConv(
             hidden_channels,
             hidden_channels,
+            heads=4,
+            concat=False,
             dropout=dropout,
             add_self_loops=False,
             negative_slope=0.01,
@@ -248,7 +257,15 @@ class AttentiveFP(torch.nn.Module):
         self.mol_gru = GRUCell(hidden_channels, hidden_channels)
         self.mol_norm = nn.LayerNorm(hidden_channels)
 
+        # Pre-allocated buffer for molecule-level edge_index (batch_size x 2)
+        self.register_buffer("_mol_edge_index", None, persistent=False)
+
         self.lin2 = Linear(hidden_channels, out_channels)
+
+        # Optional: compiled forward for speed
+        self._compiled = False
+        self._forward_compiled = None
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -282,24 +299,54 @@ class AttentiveFP(torch.nn.Module):
         for conv, gru, norm in zip(self.atom_convs, self.atom_grus, self.atom_norms):
             h = conv(x, edge_index)
             h = norm(h)
-            h = F.elu(h)
+            h = F.elu_(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
-            x = gru(h, x).relu()
+            x = gru(h, x).relu_()
 
         # Molecule Embedding
-        row = torch.arange(batch.size(0), device=batch.device)
-        edge_index = torch.stack([row, batch], dim=0)
+        batch_size = batch.size(0)
+        buf = self._mol_edge_index
+        if buf is None or buf.size(1) != batch_size:
+            row = torch.arange(batch_size, device=batch.device)
+            buf = torch.stack([row, batch], dim=0)
+            self._mol_edge_index = buf
+        else:
+            buf[0, :].fill_(0)
+            buf[1, :].copy_(batch)
+        edge_index_mol = buf
         out = global_add_pool(x, batch).relu_()
 
         # loop through time steps
         for _ in range(self.num_timesteps):
-            h = self.mol_conv((x, out), edge_index)
+            h = self.mol_conv((x, out), edge_index_mol)
             h = self.mol_norm(h)
-            h = F.elu_(h)
+            h = F.elu_(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
         return self.lin2(out)
+
+    def compile(self, mode="default"):
+        """Wrap forward with torch.compile for GPU speedup.
+
+        Args:
+            mode: "default", "reduce-overhead", or "max-autotune"
+        """
+        try:
+            import torch._inductor
+        except ImportError:
+            return  # torch.compile not available (CPU-only or older torch)
+
+        def forward_wrapper(x, edge_index, edge_attr, batch):
+            return self.forward(x, edge_index, edge_attr, batch)
+
+        self._forward_compiled = torch.compile(forward_wrapper, mode=mode, dynamic=False)
+        self._compiled = True
+
+    def compiled_forward(self, x, edge_index, edge_attr, batch):
+        if self._compiled and self._forward_compiled is not None:
+            return self._forward_compiled(x, edge_index, edge_attr, batch)
+        return self.forward(x, edge_index, edge_attr, batch)
 
 
 class AttentiveFP2(torch.nn.Module):
@@ -342,6 +389,8 @@ class AttentiveFP2(torch.nn.Module):
             conv = GATConv(
                 hidden_channels,
                 hidden_channels,
+                heads=4,
+                concat=False,
                 dropout=dropout,
                 add_self_loops=False,
                 negative_slope=0.01,
@@ -352,6 +401,8 @@ class AttentiveFP2(torch.nn.Module):
         self.mol_conv = GATConv(
             hidden_channels,
             hidden_channels,
+            heads=4,
+            concat=False,
             dropout=dropout,
             add_self_loops=False,
             negative_slope=0.01,
@@ -359,8 +410,16 @@ class AttentiveFP2(torch.nn.Module):
         self.mol_conv.explain = False  # Cannot explain global pooling.
         self.mol_gru = GRUCell(hidden_channels, hidden_channels)
 
+        # Pre-allocated buffer for molecule-level edge_index (batch_size x 2)
+        self.register_buffer("_mol_edge_index", None, persistent=False)
+
         self.lin_mu = Linear(hidden_channels, out_channels)
         self.lin_var = Linear(hidden_channels, out_channels)
+
+        # Optional: compiled forward for speed
+        self._compiled = False
+        self._forward_compiled = None
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -389,21 +448,51 @@ class AttentiveFP2(torch.nn.Module):
 
         for conv, gru in zip(self.atom_convs, self.atom_grus):
             h = conv(x, edge_index)
-            h = F.elu(h)
+            h = F.elu_(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
-            x = gru(h, x).relu()
+            x = gru(h, x).relu_()
 
         # Molecule Embedding
-        row = torch.arange(batch.size(0), device=batch.device)
-        edge_index = torch.stack([row, batch], dim=0)
+        batch_size = batch.size(0)
+        buf = self._mol_edge_index
+        if buf is None or buf.size(1) != batch_size:
+            row = torch.arange(batch_size, device=batch.device)
+            buf = torch.stack([row, batch], dim=0)
+            self._mol_edge_index = buf
+        else:
+            buf[0, :].fill_(0)
+            buf[1, :].copy_(batch)
+        edge_index_mol = buf
 
         out = global_add_pool(x, batch).relu_()
         for _ in range(self.num_timesteps):
-            h = F.elu_(self.mol_conv((x, out), edge_index))
+            h = F.elu_(self.mol_conv((x, out), edge_index_mol), inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
         return self.lin_mu(out), self.lin_var(out)
+
+    def compile(self, mode="default"):
+        """Wrap forward with torch.compile for GPU speedup.
+
+        Args:
+            mode: "default", "reduce-overhead", or "max-autotune"
+        """
+        try:
+            import torch._inductor
+        except ImportError:
+            return  # torch.compile not available
+
+        def forward_wrapper(x, edge_index, edge_attr, batch):
+            return self.forward(x, edge_index, edge_attr, batch)
+
+        self._forward_compiled = torch.compile(forward_wrapper, mode=mode, dynamic=False)
+        self._compiled = True
+
+    def compiled_forward(self, x, edge_index, edge_attr, batch):
+        if self._compiled and self._forward_compiled is not None:
+            return self._forward_compiled(x, edge_index, edge_attr, batch)
+        return self.forward(x, edge_index, edge_attr, batch)
 
 
 def reparameterize(mu: Tensor, logvar: Tensor) -> Tensor:
