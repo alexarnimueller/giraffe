@@ -46,6 +46,84 @@ class AttentionPooling(nn.Module):
         return out
 
 
+class MABMessagePassing(nn.Module):
+    """MAB-style message passing base class (inspired by Chemprop).
+    
+    Separates initialize → message → update → finalize stages for cleaner code.
+    """
+    def __init__(self, in_channels: int, hidden_channels: int, edge_dim: int, dropout: float = 0.0):
+        super().__init__()
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.edge_dim = edge_dim
+        self.dropout = dropout
+        
+        # Input transformation
+        self.W_i = Linear(in_channels + edge_dim, hidden_channels)
+        # Message transformation
+        self.W_h = Linear(hidden_channels, hidden_channels)
+        # Output transformation
+        self.W_o = Linear(in_channels + hidden_channels, hidden_channels)
+        
+        self.dropout_layer = nn.Dropout(dropout)
+        self.act = nn.ReLU()
+
+    def initialize(self, x: Tensor, edge_attr: Tensor) -> Tensor:
+        """Initialize hidden states from node and edge features."""
+        # Expand x to match edge count for edge-level messages
+        return self.act(self.W_i(x))
+
+    def message(self, H: Tensor, edge_index: Tensor, edge_attr: Tensor) -> Tensor:
+        """Compute messages along edges."""
+        src, dst = edge_index
+        # Aggregate messages from neighbors
+        return H[src]  # [num_edges, hidden]
+
+    def update(self, M: Tensor, H_0: Tensor) -> Tensor:
+        """Update hidden states with messages (with optional GRU)."""
+        H_t = self.W_h(M)
+        return self.act(H_0 + H_t)  # Residual update like Chemprop
+
+    def finalize(self, V: Tensor, M: Tensor) -> Tensor:
+        """Finalize node embeddings by concatenating with messages."""
+        H = torch.cat([V, M], dim=-1)
+        return self.act(self.W_o(H))
+
+    def forward(self, x: Tensor, edge_index: Tensor, edge_attr: Tensor) -> Tensor:
+        """Full forward pass through MAB layers."""
+        H_0 = self.initialize(x, edge_attr)
+        H = H_0
+        
+        # Single message passing step (extend in subclass for multiple layers)
+        M = self.message(H, edge_index, edge_attr)
+        H = self.update(M, H_0)
+        
+        # Finalize
+        out = self.finalize(x, H)
+        return self.dropout_layer(out)
+
+
+class GRUUpdate(nn.Module):
+    """GRU-based update (more expressive than residual)."""
+    def __init__(self, hidden_channels: int):
+        super().__init__()
+        self.gru = GRUCell(hidden_channels, hidden_channels)
+
+    def forward(self, message: Tensor, hidden: Tensor) -> Tensor:
+        return self.gru(message, hidden).relu()
+
+
+class ResidualUpdate(nn.Module):
+    """Simple residual update (lighter, like Chemprop)."""
+    def __init__(self, hidden_channels: int):
+        super().__init__()
+        self.W_h = Linear(hidden_channels, hidden_channels)
+        self.act = nn.ReLU()
+
+    def forward(self, message: Tensor, hidden: Tensor) -> Tensor:
+        return self.act(hidden + self.W_h(message))
+
+
 def load_models(checkpoint, epoch):
     """Helper class to load encoder and decoder models and corresponding config object
     from trained model checkpoint.
@@ -239,6 +317,7 @@ class AttentiveFP(torch.nn.Module):
         undirected: bool = False,
         return_vertex_embeddings: bool = False,
         aggregator: str = "add",  # "add", "mean", "attention"
+        use_gru: bool = True,  # Use GRU updates (True) or residual (False, lighter)
     ):
         super().__init__()
 
@@ -266,24 +345,63 @@ class AttentiveFP(torch.nn.Module):
     def _get_rev_edge_index(self, edge_index: Tensor) -> Tensor:
         """Get reverse edge index for undirected message passing."""
         if self._rev_edge_index is None or self._rev_edge_index.size(0) != edge_index.size(1):
-            # Create reverse mapping: for each edge (u, v), reverse is (v, u)
             src, dst = edge_index
-            # Build reverse index: find where dst matches src
-            num_nodes = max(edge_index.max().item() + 1, 1)
             rev_index = torch.zeros(2, edge_index.size(1), dtype=torch.long, device=edge_index.device)
-            # Simple approach: reverse the edge direction
             rev_index[0], rev_index[1] = dst, src
             self._rev_edge_index = rev_index
         return self._rev_edge_index
 
+    def __init__(
+        self,
+        in_channels: int,
+        hidden_channels: int,
+        out_channels: int,
+        edge_dim: int,
+        num_layers: int,
+        num_timesteps: int,
+        dropout: float = 0.0,
+        undirected: bool = False,
+        return_vertex_embeddings: bool = False,
+        aggregator: str = "add",
+        use_gru: bool = True,
+    ):
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.out_channels = out_channels
+        self.edge_dim = edge_dim
+        self.num_layers = num_layers
+        self.num_timesteps = num_timesteps
+        self.dropout = dropout
+        self.undirected = undirected
+        self.return_vertex_embeddings = return_vertex_embeddings
+        self.use_gru = use_gru
+
+        # Set up aggregator
+        if aggregator == "mean":
+            self.aggregator = MeanAggregation()
+        elif aggregator == "attention":
+            self.aggregator = AttentionPooling(hidden_channels)
+        else:
+            self.aggregator = SumAggregation()
+
+        # Pre-compute reverse edge index for undirected message passing
+        self._rev_edge_index = None
+
         self.lin1 = Linear(in_channels, hidden_channels)
         self.norm_init = nn.LayerNorm(hidden_channels)
         self.gate_conv = GATEConv(hidden_channels, hidden_channels, edge_dim, dropout)
-        self.gru = GRUCell(hidden_channels, hidden_channels)
+        
+        # Use GRU or residual update based on use_gru flag
+        if use_gru:
+            self.gru = GRUCell(hidden_channels, hidden_channels)
+        else:
+            self.gru = ResidualUpdate(hidden_channels)
 
         self.atom_convs = torch.nn.ModuleList()
-        self.atom_grus = torch.nn.ModuleList()
         self.atom_norms = torch.nn.ModuleList()
+        self.atom_updates = torch.nn.ModuleList()
 
         for _ in range(num_layers - 1):
             conv = GATConv(
@@ -296,8 +414,11 @@ class AttentiveFP(torch.nn.Module):
                 negative_slope=0.01,
             )
             self.atom_convs.append(conv)
-            self.atom_grus.append(GRUCell(hidden_channels, hidden_channels))
             self.atom_norms.append(nn.LayerNorm(hidden_channels))
+            if use_gru:
+                self.atom_updates.append(GRUCell(hidden_channels, hidden_channels))
+            else:
+                self.atom_updates.append(ResidualUpdate(hidden_channels))
 
         self.mol_conv = GATConv(
             hidden_channels,
@@ -309,7 +430,13 @@ class AttentiveFP(torch.nn.Module):
             negative_slope=0.01,
         )
         self.mol_conv.explain = False  # Cannot explain global pooling.
-        self.mol_gru = GRUCell(hidden_channels, hidden_channels)
+        
+        # Use GRU or residual for molecule-level updates
+        if use_gru:
+            self.mol_gru = GRUCell(hidden_channels, hidden_channels)
+        else:
+            self.mol_gru = ResidualUpdate(hidden_channels)
+        
         self.mol_norm = nn.LayerNorm(hidden_channels)
 
         # Pre-allocated buffer for molecule-level edge_index (batch_size x 2)
@@ -351,7 +478,7 @@ class AttentiveFP(torch.nn.Module):
         x = self.gru(h, x).relu_()
 
         # loop through layers
-        for conv, gru, norm in zip(self.atom_convs, self.atom_grus, self.atom_norms):
+        for conv, update, norm in zip(self.atom_convs, self.atom_updates, self.atom_norms):
             h = conv(x, edge_index)
             
             # Undirected message passing: average forward and backward messages
@@ -363,7 +490,7 @@ class AttentiveFP(torch.nn.Module):
             h = norm(h)
             h = F.elu_(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
-            x = gru(h, x).relu_()
+            x = update(h, x)
 
         # Store vertex embeddings before pooling (for return_vertex_embeddings)
         x_final = x  # [num_atoms, hidden_channels]
@@ -443,6 +570,7 @@ class AttentiveFP2(torch.nn.Module):
         undirected: bool = False,
         return_vertex_embeddings: bool = False,
         aggregator: str = "add",
+        use_gru: bool = True,
     ):
         super().__init__()
 
@@ -455,6 +583,7 @@ class AttentiveFP2(torch.nn.Module):
         self.dropout = dropout
         self.undirected = undirected
         self.return_vertex_embeddings = return_vertex_embeddings
+        self.use_gru = use_gru
 
         # Set up aggregator
         if aggregator == "mean":
@@ -468,10 +597,15 @@ class AttentiveFP2(torch.nn.Module):
 
         self.lin1 = Linear(in_channels, hidden_channels)
         self.gate_conv = GATEConv(hidden_channels, hidden_channels, edge_dim, dropout)
-        self.gru = GRUCell(hidden_channels, hidden_channels)
+        
+        # Use GRU or residual update based on use_gru flag
+        if use_gru:
+            self.gru = GRUCell(hidden_channels, hidden_channels)
+        else:
+            self.gru = ResidualUpdate(hidden_channels)
 
         self.atom_convs = torch.nn.ModuleList()
-        self.atom_grus = torch.nn.ModuleList()
+        self.atom_updates = torch.nn.ModuleList()
         for _ in range(num_layers - 1):
             conv = GATConv(
                 hidden_channels,
@@ -483,7 +617,10 @@ class AttentiveFP2(torch.nn.Module):
                 negative_slope=0.01,
             )
             self.atom_convs.append(conv)
-            self.atom_grus.append(GRUCell(hidden_channels, hidden_channels))
+            if use_gru:
+                self.atom_updates.append(GRUCell(hidden_channels, hidden_channels))
+            else:
+                self.atom_updates.append(ResidualUpdate(hidden_channels))
 
         self.mol_conv = GATConv(
             hidden_channels,
@@ -495,7 +632,12 @@ class AttentiveFP2(torch.nn.Module):
             negative_slope=0.01,
         )
         self.mol_conv.explain = False  # Cannot explain global pooling.
-        self.mol_gru = GRUCell(hidden_channels, hidden_channels)
+        
+        # Use GRU or residual for molecule-level updates
+        if use_gru:
+            self.mol_gru = GRUCell(hidden_channels, hidden_channels)
+        else:
+            self.mol_gru = ResidualUpdate(hidden_channels)
 
         # Pre-allocated buffer for molecule-level edge_index (batch_size x 2)
         self.register_buffer("_mol_edge_index", None, persistent=False)
@@ -529,9 +671,9 @@ class AttentiveFP2(torch.nn.Module):
             self.lin_var,
         ]:
             m.reset_parameters()
-        for conv, gru in zip(self.atom_convs, self.atom_grus):
+        for conv, update in zip(self.atom_convs, self.atom_updates):
             conv.reset_parameters()
-            gru.reset_parameters()
+            update.reset_parameters()
 
     def forward(
         self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor
@@ -542,7 +684,7 @@ class AttentiveFP2(torch.nn.Module):
         h = F.dropout(h, p=self.dropout, training=self.training)
         x = self.gru(h, x).relu_()
 
-        for conv, gru in zip(self.atom_convs, self.atom_grus):
+        for conv, update in zip(self.atom_convs, self.atom_updates):
             h = conv(x, edge_index)
             
             # Undirected message passing: average forward and backward messages
@@ -553,7 +695,7 @@ class AttentiveFP2(torch.nn.Module):
             
             h = F.elu_(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
-            x = gru(h, x).relu_()
+            x = update(h, x)
 
         # Store vertex embeddings before pooling
         x_final = x
