@@ -32,6 +32,16 @@ class SumAggregation(nn.Module):
         return global_add_pool(x, batch)
 
 
+class NormAggregation(nn.Module):
+    """Normalized sum aggregation - divides by constant norm factor."""
+    def __init__(self, norm_factor: float = 100.0):
+        super().__init__()
+        self.norm_factor = norm_factor
+
+    def forward(self, x: Tensor, batch: Tensor) -> Tensor:
+        return global_add_pool(x, batch) / self.norm_factor
+
+
 class AttentionPooling(nn.Module):
     """Attention-based graph pooling (learnable weights per node)."""
     def __init__(self, hidden_channels: int):
@@ -343,6 +353,8 @@ class AttentiveFP(torch.nn.Module):
             self.aggregator = MeanAggregation()
         elif aggregator == "attention":
             self.aggregator = AttentionPooling(hidden_channels)
+        elif aggregator == "norm":
+            self.aggregator = NormAggregation()
         else:  # "add" or default
             self.aggregator = SumAggregation()
 
@@ -389,6 +401,9 @@ class AttentiveFP(torch.nn.Module):
         if aggregator == "mean":
             self.aggregator = MeanAggregation()
         elif aggregator == "attention":
+            self.aggregator = AttentionPooling(hidden_channels)
+        elif aggregator == "norm":
+            self.aggregator = NormAggregation()
             self.aggregator = AttentionPooling(hidden_channels)
         else:
             self.aggregator = SumAggregation()
@@ -596,6 +611,9 @@ class AttentiveFP2(torch.nn.Module):
         if aggregator == "mean":
             self.aggregator = MeanAggregation()
         elif aggregator == "attention":
+            self.aggregator = AttentionPooling(hidden_channels)
+        elif aggregator == "norm":
+            self.aggregator = NormAggregation()
             self.aggregator = AttentionPooling(hidden_channels)
         else:
             self.aggregator = SumAggregation()

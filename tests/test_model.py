@@ -7,6 +7,7 @@ from giraffe.model import (
     AttentiveFP2,
     MeanAggregation,
     SumAggregation,
+    NormAggregation,
     AttentionPooling,
     GRUUpdate,
     ResidualUpdate,
@@ -88,6 +89,7 @@ def test_aggregators():
         ("add", SumAggregation),
         ("mean", MeanAggregation),
         ("attention", AttentionPooling),
+        ("norm", None),  # NormAggregation
     ]:
         model = AttentiveFP(
             in_channels=133,
