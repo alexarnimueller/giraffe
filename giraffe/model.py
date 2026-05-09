@@ -109,6 +109,9 @@ class GRUUpdate(nn.Module):
         super().__init__()
         self.gru = GRUCell(hidden_channels, hidden_channels)
 
+    def reset_parameters(self):
+        self.gru.reset_parameters()
+
     def forward(self, message: Tensor, hidden: Tensor) -> Tensor:
         return self.gru(message, hidden).relu()
 
@@ -119,6 +122,10 @@ class ResidualUpdate(nn.Module):
         super().__init__()
         self.W_h = Linear(hidden_channels, hidden_channels)
         self.act = nn.ReLU()
+
+    def reset_parameters(self):
+        glorot(self.W_h.weight)
+        zeros(self.W_h.bias)
 
     def forward(self, message: Tensor, hidden: Tensor) -> Tensor:
         return self.act(hidden + self.W_h(message))
@@ -462,9 +469,9 @@ class AttentiveFP(torch.nn.Module):
             self.mol_norm,
         ]:
             m.reset_parameters()
-        for conv, gru, ln in zip(self.atom_convs, self.atom_grus, self.atom_norms):
+        for conv, update, ln in zip(self.atom_convs, self.atom_updates, self.atom_norms):
             conv.reset_parameters()
-            gru.reset_parameters()
+            update.reset_parameters()
             ln.reset_parameters()
 
     def forward(
@@ -488,7 +495,7 @@ class AttentiveFP(torch.nn.Module):
                 h = (h + h_rev) * 0.5
             
             h = norm(h)
-            h = F.elu_(h, inplace=True)
+            h = F.elu(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             x = update(h, x)
 
@@ -514,7 +521,7 @@ class AttentiveFP(torch.nn.Module):
         for _ in range(self.num_timesteps):
             h = self.mol_conv((x, out), edge_index_mol)
             h = self.mol_norm(h)
-            h = F.elu_(h, inplace=True)
+            h = F.elu(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
@@ -693,7 +700,7 @@ class AttentiveFP2(torch.nn.Module):
                 h_rev = conv(x, rev_edge_index)
                 h = (h + h_rev) * 0.5
             
-            h = F.elu_(h, inplace=True)
+            h = F.elu(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             x = update(h, x)
 
@@ -716,7 +723,7 @@ class AttentiveFP2(torch.nn.Module):
         out = F.relu_(out)
 
         for _ in range(self.num_timesteps):
-            h = F.elu_(self.mol_conv((x, out), edge_index_mol), inplace=True)
+            h = F.elu(self.mol_conv((x, out), edge_index_mol), inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
