@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import GRUCell, Linear, Parameter
-from torch_geometric.nn import GATConv, MessagePassing, global_add_pool
+from torch_geometric.nn import GATConv, MessagePassing, global_add_pool, global_mean_pool
 from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.typing import Adj, OptTensor
 from torch_geometric.utils import softmax
@@ -18,6 +18,32 @@ from torch_geometric.utils import softmax
 from giraffe.utils import get_input_dims, read_config_ini
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+class MeanAggregation(nn.Module):
+    """Mean pooling over graph nodes."""
+    def forward(self, x: Tensor, batch: Tensor) -> Tensor:
+        return global_mean_pool(x, batch)
+
+
+class SumAggregation(nn.Module):
+    """Sum pooling over graph nodes."""
+    def forward(self, x: Tensor, batch: Tensor) -> Tensor:
+        return global_add_pool(x, batch)
+
+
+class AttentionPooling(nn.Module):
+    """Attention-based graph pooling (learnable weights per node)."""
+    def __init__(self, hidden_channels: int):
+        super().__init__()
+        self.att = nn.Linear(hidden_channels, 1)
+
+    def forward(self, x: Tensor, batch: Tensor) -> Tensor:
+        att_weights = self.att(x).squeeze(-1)  # [N]
+        att_weights = F.softmax(att_weights, dim=0)
+        # Expand to match x dim for weighted sum
+        out = global_add_pool(x * att_weights.unsqueeze(-1), batch)
+        return out
 
 
 def load_models(checkpoint, epoch):
@@ -210,6 +236,9 @@ class AttentiveFP(torch.nn.Module):
         num_layers: int,
         num_timesteps: int,
         dropout: float = 0.0,
+        undirected: bool = False,
+        return_vertex_embeddings: bool = False,
+        aggregator: str = "add",  # "add", "mean", "attention"
     ):
         super().__init__()
 
@@ -220,6 +249,32 @@ class AttentiveFP(torch.nn.Module):
         self.num_layers = num_layers
         self.num_timesteps = num_timesteps
         self.dropout = dropout
+        self.undirected = undirected
+        self.return_vertex_embeddings = return_vertex_embeddings
+
+        # Set up aggregator
+        if aggregator == "mean":
+            self.aggregator = MeanAggregation()
+        elif aggregator == "attention":
+            self.aggregator = AttentionPooling(hidden_channels)
+        else:  # "add" or default
+            self.aggregator = SumAggregation()
+
+        # Pre-compute reverse edge index for undirected message passing
+        self._rev_edge_index = None
+
+    def _get_rev_edge_index(self, edge_index: Tensor) -> Tensor:
+        """Get reverse edge index for undirected message passing."""
+        if self._rev_edge_index is None or self._rev_edge_index.size(0) != edge_index.size(1):
+            # Create reverse mapping: for each edge (u, v), reverse is (v, u)
+            src, dst = edge_index
+            # Build reverse index: find where dst matches src
+            num_nodes = max(edge_index.max().item() + 1, 1)
+            rev_index = torch.zeros(2, edge_index.size(1), dtype=torch.long, device=edge_index.device)
+            # Simple approach: reverse the edge direction
+            rev_index[0], rev_index[1] = dst, src
+            self._rev_edge_index = rev_index
+        return self._rev_edge_index
 
         self.lin1 = Linear(in_channels, hidden_channels)
         self.norm_init = nn.LayerNorm(hidden_channels)
@@ -287,7 +342,7 @@ class AttentiveFP(torch.nn.Module):
 
     def forward(
         self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor
-    ) -> Tensor:
+    ) -> Tensor | tuple[Tensor, Tensor]:
         # Atom Embedding
         x = F.leaky_relu_(self.lin1(x))
         x = self.norm_init(x)
@@ -298,12 +353,22 @@ class AttentiveFP(torch.nn.Module):
         # loop through layers
         for conv, gru, norm in zip(self.atom_convs, self.atom_grus, self.atom_norms):
             h = conv(x, edge_index)
+            
+            # Undirected message passing: average forward and backward messages
+            if self.undirected:
+                rev_edge_index = self._get_rev_edge_index(edge_index)
+                h_rev = conv(x, rev_edge_index)
+                h = (h + h_rev) * 0.5
+            
             h = norm(h)
             h = F.elu_(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             x = gru(h, x).relu_()
 
-        # Molecule Embedding
+        # Store vertex embeddings before pooling (for return_vertex_embeddings)
+        x_final = x  # [num_atoms, hidden_channels]
+
+        # Molecule Embedding using configurable aggregator
         batch_size = batch.size(0)
         buf = self._mol_edge_index
         if buf is None or buf.size(1) != batch_size:
@@ -314,7 +379,9 @@ class AttentiveFP(torch.nn.Module):
             buf[0, :].fill_(0)
             buf[1, :].copy_(batch)
         edge_index_mol = buf
-        out = global_add_pool(x, batch).relu_()
+        
+        out = self.aggregator(x, batch)
+        out = F.relu_(out)
 
         # loop through time steps
         for _ in range(self.num_timesteps):
@@ -324,7 +391,12 @@ class AttentiveFP(torch.nn.Module):
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
-        return self.lin2(out)
+        mol_embedding = self.lin2(out)
+
+        # Return based on return_vertex_embeddings flag
+        if self.return_vertex_embeddings:
+            return mol_embedding, x_final  # (mol_embedding, atom_embeddings)
+        return mol_embedding
 
     def compile(self, mode="default"):
         """Wrap forward with torch.compile for GPU speedup.
@@ -368,6 +440,9 @@ class AttentiveFP2(torch.nn.Module):
         num_layers: int,
         num_timesteps: int,
         dropout: float = 0.0,
+        undirected: bool = False,
+        return_vertex_embeddings: bool = False,
+        aggregator: str = "add",
     ):
         super().__init__()
 
@@ -378,6 +453,18 @@ class AttentiveFP2(torch.nn.Module):
         self.num_layers = num_layers
         self.num_timesteps = num_timesteps
         self.dropout = dropout
+        self.undirected = undirected
+        self.return_vertex_embeddings = return_vertex_embeddings
+
+        # Set up aggregator
+        if aggregator == "mean":
+            self.aggregator = MeanAggregation()
+        elif aggregator == "attention":
+            self.aggregator = AttentionPooling(hidden_channels)
+        else:
+            self.aggregator = SumAggregation()
+
+        self._rev_edge_index = None
 
         self.lin1 = Linear(in_channels, hidden_channels)
         self.gate_conv = GATEConv(hidden_channels, hidden_channels, edge_dim, dropout)
@@ -422,6 +509,15 @@ class AttentiveFP2(torch.nn.Module):
 
         self.reset_parameters()
 
+    def _get_rev_edge_index(self, edge_index: Tensor) -> Tensor:
+        """Get reverse edge index for undirected message passing."""
+        if self._rev_edge_index is None or self._rev_edge_index.size(0) != edge_index.size(1):
+            src, dst = edge_index
+            rev_index = torch.zeros(2, edge_index.size(1), dtype=torch.long, device=edge_index.device)
+            rev_index[0], rev_index[1] = dst, src
+            self._rev_edge_index = rev_index
+        return self._rev_edge_index
+
     def reset_parameters(self):
         for m in [
             self.lin1,
@@ -439,7 +535,7 @@ class AttentiveFP2(torch.nn.Module):
 
     def forward(
         self, x: Tensor, edge_index: Tensor, edge_attr: Tensor, batch: Tensor
-    ) -> Tensor:
+    ) -> tuple[Tensor, Tensor] | tuple[Tensor, Tensor, Tensor]:
         # Atom Embedding
         x = F.leaky_relu_(self.lin1(x))
         h = F.elu_(self.gate_conv(x, edge_index, edge_attr))
@@ -448,11 +544,21 @@ class AttentiveFP2(torch.nn.Module):
 
         for conv, gru in zip(self.atom_convs, self.atom_grus):
             h = conv(x, edge_index)
+            
+            # Undirected message passing: average forward and backward messages
+            if self.undirected:
+                rev_edge_index = self._get_rev_edge_index(edge_index)
+                h_rev = conv(x, rev_edge_index)
+                h = (h + h_rev) * 0.5
+            
             h = F.elu_(h, inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             x = gru(h, x).relu_()
 
-        # Molecule Embedding
+        # Store vertex embeddings before pooling
+        x_final = x
+
+        # Molecule Embedding using configurable aggregator
         batch_size = batch.size(0)
         buf = self._mol_edge_index
         if buf is None or buf.size(1) != batch_size:
@@ -464,13 +570,20 @@ class AttentiveFP2(torch.nn.Module):
             buf[1, :].copy_(batch)
         edge_index_mol = buf
 
-        out = global_add_pool(x, batch).relu_()
+        out = self.aggregator(x, batch)
+        out = F.relu_(out)
+
         for _ in range(self.num_timesteps):
             h = F.elu_(self.mol_conv((x, out), edge_index_mol), inplace=True)
             h = F.dropout(h, p=self.dropout, training=self.training)
             out = self.mol_gru(h, out).relu_()
 
-        return self.lin_mu(out), self.lin_var(out)
+        mu = self.lin_mu(out)
+        logvar = self.lin_var(out)
+
+        if self.return_vertex_embeddings:
+            return mu, logvar, x_final  # (mu, logvar, atom_embeddings)
+        return mu, logvar
 
     def compile(self, mode="default"):
         """Wrap forward with torch.compile for GPU speedup.
