@@ -19,10 +19,34 @@ An overview of the architecture and training logic of Giraffe looks as follows:
 > **_NOTE:_**  If the `--no-vae` or `--wae` flags are used during training, the encoder only outputs a single vector.
 
 ## Quick start
-### Anaconda Environment
-All packages needed to use GIRAFFE are provided in `environment.yml`. To create a new Anaconda environment from it, run the following:
+### Installation with uv
+All dependencies are managed via `pyproject.toml`. Using [uv](https://github.com/astral-sh/uv) is recommended:
+
 ```bash
-conda env create -f environment.yml
+# Clone and enter the repository
+git clone https://github.com/alexarnimueller/giraffe.git
+cd giraffe
+
+# Create virtual environment and install
+git clone https://github.com/alexarnimueller/giraffe.git
+cd giraffe
+
+# Create virtual environment
+uv venv .venv --python 3.12
+
+# Activate and install in editable mode
+source .venv/bin/activate
+uv pip install -e .
+
+# Or with dev dependencies
+uv pip install -e ".[dev]"
+```
+
+### Installation with pip
+```bash
+git clone https://github.com/alexarnimueller/giraffe.git
+cd giraffe
+pip install -e .
 ```
 
 ### Training
