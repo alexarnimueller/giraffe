@@ -28,11 +28,11 @@ conda env create -f environment.yml
 ### Training
 Training a new model on a file with SMILES strings can be achieved as follows:
 ```bash
-python train.py -f data/100k.smi
+python giraffe/train.py -f giraffe/data/100k.smi
 ```
 The call above will use the default configuration stored in `configs/default.ini` and train a VAE. To train a traditional autoencoder, use the `--no-vae` flag. It is also possible to train a Wasserstein autoencoder (WAE) using the maximum mean discrepancy in inverse multiquadratic kernel space to match the encoder distribution with a gaussian. Use the `--wae` flag to train a MMD WAE. 
 
-To get all the options, call `python train.py --help`:
+To get all the options, call `python giraffe/train.py --help`:
 ```
 Usage: train.py [OPTIONS]
 
@@ -105,17 +105,17 @@ If the input file only contains SMILES strings (single column, with or without h
 ### Sampling
 To randomly sample up to `100` SMILES strings of maximum length `96` at temperature `0.6` from a trained model checkpoint (in this case epoch `70` of the model `pub_vae_sig`), run the following:
 ```bash
-python sampling.py -r -e 70 -t 0.6 -l 96 -n 100 -c models/pub_vae_sig
+python giraffe/sampling.py -r -e 70 -t 0.6 -l 96 -n 100 -c giraffe/models/pub_vae_sig
 ```
 If you ommit the `-r` flag, instead of selecting random points in latent space, the model will select random `100` SMILES from the training data and sample SMILES based on those seeds.
 
 Conditional sampling around a single SMILES string of interest using epoch `70` of the pretrained model `pub_vae_sig`:
 ```bash
-python sampling.py -e 70 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" -c models/pub_vae_sig
+python giraffe/sampling.py -e 70 -t 0.6 -l 96 -n 100 -s "CC1(CC(CC(N1)(C)C)OC2=NN=C(C=C2)C3=C(C=C(C=C3)C4=CNN=C4)O)C" -c giraffe/models/pub_vae_sig
 ```
 The sampled SMILES strings are stored in `output/sampled.csv` together with the negative log likelihood score.
 
-To get all available options, call `python sampling.py --help`:
+To get all available options, call `python giraffe/sampling.py --help`:
 ```
 Usage: sampling.py [OPTIONS]
 
@@ -136,15 +136,15 @@ Options:
 ### Embedding
 To embed SMILES strings using the pretrained GNN, proceed as follows:
 ```bash
-python embedding.py data/1k.txt output/test/embeddings.txt
+python giraffe/embedding.py giraffe/data/1k.txt giraffe/output/test/embeddings.txt
 ```
 
 One can also directly perform a dimensionality reduction on the embeddings using PCA, t-SNE or PacMap with the respective flag:
 ```bash
-python embedding.py data/1k.txt output/test/embeddings-tsne.txt --tsne
+python giraffe/embedding.py giraffe/data/1k.txt giraffe/output/test/embeddings-tsne.txt --tsne
 ```
 
-To get all available options, call `python embedding.py --help`:
+To get all available options, call `python giraffe/embedding.py --help`:
 ```
 Usage: embedding.py [OPTIONS] INPUT_FILE OUTPUT_FILE
 
@@ -170,9 +170,9 @@ Options:
 ## Finetuneing
 Finetuneing a trained model on another set of SMILES strings can be achieved as follows:
 ```bash
-python finetune.py data/actives.smi
+python giraffe/finetune.py giraffe/data/actives.smi
 ```
-To get all available options, call `python finetune.py --help`:
+To get all available options, call `python giraffe/finetune.py --help`:
 ```
 Usage: finetune.py [OPTIONS] FILENAME
 
@@ -223,7 +223,7 @@ GIRAFFE also contains a script for benchmark datasets hosted on the [Polaris Hub
 First, login to the polaris hub by running the command `polaris login`. Then adapt the benchmark datasets in `giraffe/examples/benchmark_polaris.py` and finally run the script using your desired model checkpoint:
 
 ```bash
-python examples/benchmark_polaris.py -m models/pub_vae_sig/atfp_70.pt <polaris username>
+python giraffe/examples/benchmark_polaris.py -m giraffe/models/pub_vae_sig/atfp_70.pt <polaris username>
 ```
 
 ## Examples
